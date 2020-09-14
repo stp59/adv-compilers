@@ -1,1 +1,3 @@
-let () = print_endline Bril.Contrived.the_string
+open Opt
+
+let () = print_endline Contrived.the_string

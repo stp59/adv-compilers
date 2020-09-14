@@ -1,4 +1,4 @@
 (library
-  (name bril)
-  (libraries str core sexplib menhirLib)
+  (name opt)
+  (libraries str core yojson sexplib menhirLib bril)
   (preprocess (pps ppx_sexp_conv)))
