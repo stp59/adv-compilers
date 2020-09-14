@@ -1,0 +1,4 @@
+(library
+  (name bril)
+  (libraries str core sexplib menhirLib)
+  (preprocess (pps ppx_sexp_conv)))

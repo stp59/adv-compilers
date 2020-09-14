@@ -1,0 +1,1 @@
+let () = print_endline Bril.Contrived.the_string
