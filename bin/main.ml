@@ -1,3 +1,10 @@
 open Opt
+open Core
 
-let () = print_endline Contrived.the_string
+let json = In_channel.input_all In_channel.stdin
+
+let ast = Bril.parse json
+
+let sum = Contrived.sum_consts ast
+
+let () = printf "The sum of all the constants is: %d" sum
