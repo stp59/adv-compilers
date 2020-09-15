@@ -7,4 +7,4 @@ let ast = Bril.parse json
 
 let sum = Contrived.sum_consts ast
 
-let () = printf "The sum of all the constants is: %d" sum
+let () = printf "The sum of all the constants is: %d\n" sum
