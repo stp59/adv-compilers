@@ -6,10 +6,10 @@ default: build
 
 build:
 	@dune build bin/main.exe
-	@cp _build/default/bin/main.exe test-contrived/contrived.exe
+	@cp _build/default/bin/main.exe bril-opt
 
 clean:
 	@dune clean
 
-test:
-	turnt test-contrived/*.bril
+test-contrived: build
+	@turnt test-contrived/*.bril

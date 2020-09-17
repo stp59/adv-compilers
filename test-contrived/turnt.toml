@@ -1,2 +1,2 @@
   
-command = "bril2json < {filename} | ./contrived.exe"
+command = "bril2json < {filename} | ../bril-opt --contrived"
