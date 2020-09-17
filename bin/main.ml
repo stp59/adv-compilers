@@ -3,7 +3,7 @@ open Core
 
 let json = In_channel.input_all In_channel.stdin
 
-let ast = Bril.parse json
+let ast = Bril.from_string json
 
 let sum = Contrived.sum_consts ast
 
