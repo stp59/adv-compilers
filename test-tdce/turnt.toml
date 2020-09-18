@@ -1,0 +1,1 @@
+command = "bril2json < {filename} | ../bril-opt --tdce | bril2txt"

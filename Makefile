@@ -14,5 +14,8 @@ clean:
 test-contrived: build
 	@turnt test-contrived/*.bril
 
+test-tdce: build
+	@turnt test-tdce/*.bril
+
 test: build
 	@turnt benchmarks/*.bril
