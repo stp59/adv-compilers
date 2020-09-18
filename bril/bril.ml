@@ -96,12 +96,15 @@ type func = {
   args : dest list;
   ret_type : bril_type option;
   instrs : instr list;
-  blocks : instr list String.Map.t;
-  cfg : string list String.Map.t;
 }
 [@@deriving sexp_of]
 
 type t = { funcs : func list } [@@deriving sexp_of]
+
+type cfg = {
+  blocks : instr list String.Map.t;
+  edges : string list String.Map.t;
+} [@@deriving sexp_of]
 
 let to_blocks_and_cfg instrs =
   let block_name i = sprintf "block%d" i in
@@ -136,7 +139,8 @@ let to_blocks_and_cfg instrs =
         in
         (name, next))
   in
-  (String.Map.of_alist_exn blocks, String.Map.of_alist_exn cfg)
+  { blocks = String.Map.of_alist_exn blocks;
+    edges = String.Map.of_alist_exn cfg; }
 
 let from_json json =
   let open Yojson.Basic.Util in
@@ -205,8 +209,7 @@ let from_json json =
     let args = json |> member "args" |> to_list |> List.map ~f:to_arg in
     let ret_type = json |> member "type" |> to_type_option in
     let instrs = json |> member "instrs" |> to_list |> List.map ~f:to_instr in
-    let (blocks, cfg) = to_blocks_and_cfg instrs in
-    { name; args; ret_type; instrs; blocks; cfg }
+    { name; args; ret_type; instrs; }
   in
   { funcs = json |> member "functions" |> to_list |> List.map ~f:to_func }
 

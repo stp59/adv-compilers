@@ -66,12 +66,17 @@ type func = {
   args : dest list;
   ret_type : bril_type option;
   instrs : instr list;
-  blocks : instr list String.Map.t;
-  cfg : string list String.Map.t;
 }
 [@@deriving sexp_of]
 
 type t = { funcs : func list } [@@deriving sexp_of]
+
+type cfg = {
+  blocks : instr list String.Map.t;
+  edges : string list String.Map.t;
+} [@@deriving sexp_of]
+
+val to_blocks_and_cfg : instr list -> cfg
 
 val from_file : string -> t
 
