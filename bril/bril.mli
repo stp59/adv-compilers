@@ -3,11 +3,13 @@ open Core
 type bril_type =
   | IntType
   | BoolType
+  | FloatType
 [@@deriving sexp_of]
 
 type const =
   | Int of int
   | Bool of bool
+  | Float of float
 [@@deriving sexp_of]
 
 type dest = string * bril_type [@@deriving sexp_of]
@@ -30,6 +32,15 @@ type binop =
   | Ge
   | And
   | Or
+  | Fadd
+  | Fmul
+  | Fsub
+  | Fdiv
+  | Feq
+  | Flt
+  | Fgt
+  | Fle
+  | Fge
 [@@deriving sexp_of]
 
 type unop =

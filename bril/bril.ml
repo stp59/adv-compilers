@@ -3,11 +3,13 @@ open Core
 type bril_type =
   | IntType
   | BoolType
+  | FloatType
 [@@deriving sexp_of]
 
 type const =
   | Int of int
   | Bool of bool
+  | Float of float
 [@@deriving sexp_of]
 
 type dest = string * bril_type [@@deriving sexp_of]
@@ -30,6 +32,15 @@ type binop =
   | Ge
   | And
   | Or
+  | Fadd
+  | Fmul
+  | Fsub
+  | Fdiv
+  | Feq
+  | Flt
+  | Fgt
+  | Fle
+  | Fge
 [@@deriving sexp_of, equal]
 
 let binops_by_name =
@@ -45,6 +56,15 @@ let binops_by_name =
     ("ge", Ge);
     ("and", And);
     ("or", Or);
+    ("fadd", Fadd);
+    ("fmul", Fmul);
+    ("fsub", Fsub);
+    ("fdiv", Fdiv);
+    ("feq", Feq);
+    ("flt", Flt);
+    ("fgt", Fgt);
+    ("fle", Fle);
+    ("fge", Fge);
   ]
 
 let binops_by_op = List.map binops_by_name ~f:(fun (a, b) -> (b, a))
@@ -132,6 +152,7 @@ let from_json json =
   let to_type = function
     | `String "int" -> IntType
     | `String "bool" -> BoolType
+    | `String "float" -> FloatType
     | `Assoc [ ("ptr", _)] -> failwith "invalid type: ptr"
     | json -> failwithf "invalid type: %s" (json |> to_string) ()
   in
@@ -158,6 +179,10 @@ let from_json json =
               match json |> member "type" |> to_type with
               | IntType -> Int (json |> member "value" |> to_int)
               | BoolType -> Bool (json |> member "value" |> to_bool)
+              | FloatType -> Float (json |> member "value" |> (function
+                | `Float _ as f -> to_float f
+                | `Int _ as f -> to_int f |> float_of_int
+                | _ -> failwith "invalid const"))
             in
             Const (dest (), const)
         | op when mem binops_by_name op -> Binary (dest (), find binops_by_name op, arg 0, arg 1)
@@ -193,6 +218,7 @@ let to_string { funcs } =
   let of_type = function
     | IntType -> `String "int"
     | BoolType -> `String "bool"
+    | FloatType -> `String "float"
   in
   let of_dest (name, bril_type) = [ ("dest", `String name); ("type", of_type bril_type) ] in
   let of_instr = function
@@ -204,7 +230,8 @@ let to_string { funcs } =
              ( "value",
                match const with
                | Int i -> `Int i
-               | Bool b -> `Bool b );
+               | Bool b -> `Bool b
+               | Float f -> `Float f );
            ]
           @ of_dest dest)
     | Binary (dest, op, arg1, arg2) ->
