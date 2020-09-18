@@ -28,7 +28,6 @@ type binop =
   | Gt
   | Le
   | Ge
-  | Not
   | And
   | Or
 [@@deriving sexp_of, equal]
@@ -44,7 +43,6 @@ let binops_by_name =
     ("gt", Gt);
     ("le", Le);
     ("ge", Ge);
-    ("not", Not);
     ("and", And);
     ("or", Or);
   ]
@@ -134,6 +132,7 @@ let from_json json =
   let to_type = function
     | `String "int" -> IntType
     | `String "bool" -> BoolType
+    | `Assoc [ ("ptr", _)] -> failwith "invalid type: ptr"
     | json -> failwithf "invalid type: %s" (json |> to_string) ()
   in
   let to_type_option = function
