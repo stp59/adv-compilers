@@ -27,7 +27,7 @@ let do_nop () =
 let do_tdce () =
   In_channel.input_all Stdlib.stdin
   |> Bril.from_string
-  |> fun x -> x
+  |> Tdce.elim_dead
   |> Bril.to_string
   |> Out_channel.output_string Stdlib.stdout
 
