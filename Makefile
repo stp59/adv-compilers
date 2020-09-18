@@ -13,3 +13,6 @@ clean:
 
 test-contrived: build
 	@turnt test-contrived/*.bril
+
+test: build
+	@turnt benchmarks/*.bril
