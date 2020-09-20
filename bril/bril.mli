@@ -1,5 +1,3 @@
-open Core
-
 type bril_type =
   | IntType
   | BoolType
@@ -72,8 +70,8 @@ type func = {
 type t = { funcs : func list } [@@deriving sexp_of]
 
 type cfg = {
-  blocks : instr list String.Map.t;
-  edges : string list String.Map.t;
+  blocks : (string * instr list) list;
+  edges : (string * string list) list;
 } [@@deriving sexp_of]
 
 val to_blocks_and_cfg : instr list -> cfg

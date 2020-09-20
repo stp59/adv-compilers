@@ -102,8 +102,8 @@ type func = {
 type t = { funcs : func list } [@@deriving sexp_of]
 
 type cfg = {
-  blocks : instr list String.Map.t;
-  edges : string list String.Map.t;
+  blocks : (string * instr list) list;
+  edges : (string * string list) list;
 } [@@deriving sexp_of]
 
 let to_blocks_and_cfg instrs =
@@ -113,7 +113,7 @@ let to_blocks_and_cfg instrs =
       ~init:(block_name 0, [], [])
       ~f:(fun (name, block, blocks) instr ->
         match instr with
-        | Label name -> (name, block, blocks)
+        | Label name -> (name, instr :: block, blocks)
         | Jmp _
         | Br _
         | Ret _ ->
@@ -123,9 +123,9 @@ let to_blocks_and_cfg instrs =
   in
   let blocks =
     (name, List.rev block) :: blocks
-    |> List.rev_filter ~f:(fun (_, block) -> not (List.is_empty block))
+    |> List.filter ~f:(fun (_, block) -> not (List.is_empty block))
   in
-  let cfg =
+  let edges =
     List.mapi blocks ~f:(fun i (name, block) ->
         let next =
           match List.last_exn block with
@@ -139,8 +139,7 @@ let to_blocks_and_cfg instrs =
         in
         (name, next))
   in
-  { blocks = String.Map.of_alist_exn blocks;
-    edges = String.Map.of_alist_exn cfg; }
+  { blocks; edges; }
 
 let from_json json =
   let open Yojson.Basic.Util in
