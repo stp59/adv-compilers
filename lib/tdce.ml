@@ -1,6 +1,6 @@
 open Core
 
-let elim_dead_block (instrs : Bril.instr list) : Bril.instr list =
+let rec elim_dead_block (instrs : Bril.instr list) : Bril.instr list =
   let equal = String.equal in
   let f (i : int) (dels, defs : int list * (string * int) list) (instr : Bril.instr) =
     match instr with
@@ -36,7 +36,8 @@ let elim_dead_block (instrs : Bril.instr list) : Bril.instr list =
   (* let unused = dels @ (List.map defs ~f:snd) in *)
   let instrs' = List.filteri instrs
     ~f:(fun i _ -> List.mem unused i ~equal:Int.equal |> not) in
-  instrs'
+  if Int.equal (List.length instrs') (List.length instrs)
+  then instrs' else elim_dead_block instrs'
 
 let elim_dead_local (func : Bril.func) : Bril.func =
   let Bril.{ blocks; _ } = Bril.to_blocks_and_cfg func.instrs in
