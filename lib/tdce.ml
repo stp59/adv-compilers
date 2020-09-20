@@ -33,7 +33,6 @@ let rec elim_dead_block (instrs : Bril.instr list) : Bril.instr list =
     | Print args -> dels, List.fold args ~init:defs ~f:(List.Assoc.remove ~equal)
     | Nop -> dels, defs in
   let unused = List.foldi ~f ~init:([], []) instrs |> fst in
-  (* let unused = dels @ (List.map defs ~f:snd) in *)
   let instrs' = List.filteri instrs
     ~f:(fun i _ -> List.mem unused i ~equal:Int.equal |> not) in
   if Int.equal (List.length instrs') (List.length instrs)
@@ -46,32 +45,40 @@ let elim_dead_local (func : Bril.func) : Bril.func =
     |> List.fold ~init:[] ~f:(fun acc is -> is @ acc) }
 
 let rec elim_dead_global (func : Bril.func) : Bril.func =
-  let f (i : int) (acc : (string * int) list) (instr : Bril.instr) =
+  let equal = String.equal in
+  let f (i : int) (defs, uses : (string * int) list * string list) (instr : Bril.instr) =
     match instr with
-    | Label _ -> acc
+    | Label _ -> defs, uses
     | Const ((dest, _), _) ->
-      (dest, i) :: (List.filter acc ~f:(fun (a, _) -> not (String.equal a dest)))
+      (if not (List.mem uses dest ~equal)
+      then List.Assoc.add defs dest i ~equal
+      else defs), uses
     | Binary ((dest, _), _, arg0, arg1) ->
-      (dest, i) :: List.filter acc
-        ~f:(fun (a, _) -> not (List.mem [dest; arg0; arg1] a ~equal:String.equal))
+      let uses = arg0 :: arg1 :: uses in
+      (if not (List.mem uses dest ~equal)
+      then List.Assoc.add defs dest i ~equal
+      else defs), uses
     | Unary ((dest, _), _, arg) ->
-      (dest, i) :: List.filter acc
-        ~f:(fun (a, _) -> not (List.mem [dest; arg] a ~equal:String.equal))
-    | Jmp _ -> acc
-    | Br (arg, _, _) ->
-      List.filter acc ~f:(fun (a, _) -> not (String.equal a arg))
+      let uses = arg :: uses in
+      (if not (List.mem uses dest ~equal)
+      then List.Assoc.add defs dest i ~equal
+      else defs), uses
+    | Jmp _ -> defs, uses
+    | Br (arg, _, _) -> defs, arg :: uses
     | Call (Some (dest, _), _, args) ->
-      (dest, i) :: List.filter acc
-        ~f:(fun (a, _) -> not (List.mem args a ~equal:String.equal))
-    | Call (None, _, args) ->
-      List.filter acc ~f:(fun (a, _) -> not (List.mem args a ~equal:String.equal))
-    | Ret (Some arg) ->
-      List.filter acc ~f:(fun (a, _) -> not (String.equal a arg))
-    | Ret None -> acc
-    | Print args ->
-      List.filter acc ~f:(fun (a, _) -> not (List.mem args a ~equal:String.equal))
-    | Nop -> acc in
-  let unused = List.foldi ~f ~init:[] func.instrs |> List.map ~f:snd in
+      let uses = args @ uses in
+      (if not (List.mem uses dest ~equal)
+      then List.Assoc.add defs dest i ~equal
+      else defs), uses
+    | Call (None, _, args) -> defs, args @ uses
+    | Ret (Some arg) -> defs, arg :: uses
+    | Ret None -> defs, uses
+    | Print args -> defs, args @ uses
+    | Nop -> defs, uses in
+  let defs, uses = List.foldi ~f ~init:([], []) func.instrs in
+  let unused = 
+    List.filter defs ~f:(fun (v, _) -> List.mem uses v ~equal |> not)
+    |> List.map ~f:snd in
   let instrs' = List.filteri func.instrs 
     ~f:(fun i _ -> not (List.mem unused i ~equal:Int.equal)) in
   if Int.equal (List.length func.instrs) (List.length instrs')

@@ -17,5 +17,8 @@ test-contrived: build
 test-tdce: build
 	@turnt test-tdce/*.bril
 
+test-lvn: build
+	@turnt test-lvn/*.bril
+
 test: build
 	@turnt benchmarks/*.bril
