@@ -8,7 +8,7 @@ type const =
   | Int of int
   | Bool of bool
   | Float of float
-[@@deriving sexp_of]
+[@@deriving sexp_of, equal]
 
 type dest = string * bril_type [@@deriving sexp_of]
 
@@ -39,12 +39,12 @@ type binop =
   | Fgt
   | Fle
   | Fge
-[@@deriving sexp_of]
+[@@deriving sexp_of, equal]
 
 type unop =
   | Not
   | Id
-[@@deriving sexp_of]
+[@@deriving sexp_of, equal]
 
 type instr =
   | Label of label

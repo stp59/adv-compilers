@@ -10,7 +10,7 @@ type const =
   | Int of int
   | Bool of bool
   | Float of float
-[@@deriving sexp_of]
+[@@deriving sexp_of, equal]
 
 type dest = string * bril_type [@@deriving sexp_of]
 
@@ -113,7 +113,7 @@ let to_blocks_and_cfg instrs =
       ~init:(block_name 0, [], [])
       ~f:(fun (name, block, blocks) instr ->
         match instr with
-        | Label name -> (name, instr :: block, blocks)
+        | Label n -> (n, [instr], (name, List.rev block) :: blocks)
         | Jmp _
         | Br _
         | Ret _ ->
