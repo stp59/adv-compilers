@@ -15,8 +15,11 @@ run the contrived "sum all constants" routine.
 and deparse back into the json format with no changes.
 * `--tdce`: input text (expects json rep of bril), parse into bril AST, run
 trivial dead code elimination, and output modified json string
-* `--lvn`: input text (expects json rep of bril), parse into bril ASt, run
+* `--lvn`: input text (expects json rep of bril), parse into bril AST, run
 local value numbering optimizations followed by tdce, and output modified json string
+* `--cp`: input text (json rep of bril), parse into bril AST, run the constant
+propagation dataflow analysis optimization with tdce as a subroutine, and output
+the modified json string
 
 # contrived.ml
 
@@ -43,3 +46,10 @@ benchmark suite with a uniform decrease in dynamic instructions executed. It als
 behaves as expected according to the lvn test suite on the bril repository with a
 few exceptions due to the fact that the lvn on the repository incorporates some
 semantics-specific transformations (e.g. commutivity of addition, semantics of id, etc).
+
+# dataflow.ml
+
+Implements a version of the constant propagation dataflow analysis, with the
+worklist algorithm modifying the program as it goes. Improves the dynamic
+instruction count of the benchmarks without any correctness cost, and behaves
+predictably on the example program test-cp/fold.bril.
