@@ -51,13 +51,99 @@ let merge (v1 : cp_val) (v2 : cp_val) : cp_val = {
   vvs = List.fold v2.vvs ~init:v1.vvs
     ~f:(fun acc (n, v) -> List.Assoc.add acc n
       (merge_var (List.Assoc.find acc n ~equal:String.equal
-          |> Option.value_map ~default:v ~f:Fn.id) v) ~equal:String.equal);
+        |> Option.value_map ~default:v ~f:Fn.id) v) ~equal:String.equal);
 }
 
 let mergel = List.fold ~init:init_cp ~f:merge
 
+let symb_binop op v1 v2 =
+  match v1, v2 with
+  | Uninit, _ | _, Uninit -> Uninit
+  | Conflict, _ | _, Conflict -> Conflict
+  | Const (Bool b1), Const (Bool b2) ->
+    begin match op with
+      | Bril.And -> Const (Bool (b1 && b2))
+      | Bril.Or -> Const (Bool (b1 || b2))
+      | _ -> Conflict end
+  | Const (Int i1), Const (Int i2) ->
+    begin match op with
+      | Add -> Const (Int (i1 + i2))
+      | Mul -> Const (Int (i1 * i2))
+      | Sub -> Const (Int (i1 - i2))
+      | Div -> Const (Int (i1 / i2))
+      | Eq -> Const (Bool (Int.equal i1 i2))
+      | Lt -> Const (Bool (i1 < i2))
+      | Gt -> Const (Bool (i1 > i2))
+      | Le -> Const (Bool (i1 <= i2))
+      | Ge -> Const (Bool (i1 >= i2))
+      | _ -> Conflict end
+  | Const (Float f1), Const (Float f2) ->
+    begin match op with
+      | Fadd -> Const (Float (f1 +. f2))
+      | Fmul -> Const (Float (f1 *. f2))
+      | Fsub -> Const (Float (f1 -. f2))
+      | Fdiv -> Const (Float (f1 /. f2))
+      | _ -> Conflict end
+  | _ -> Conflict
+
+let symb_unop op v =
+  match v with
+  | Uninit | Conflict -> v
+  | Const (Bool b) ->
+    begin match op with
+      | Bril.Not -> Const (Bool (not b))
+      | Bril.Id -> Const (Bool b) end
+  | Const c ->
+    begin match op with
+      | Bril.Id -> Const c
+      | _ -> Conflict end
+
 let transfer (is : Bril.instr list) (inv : cp_val) : Bril.instr list * cp_val =
-  is, inv (* TODO *)
+  let equal = String.equal in
+  let f (acc, v) i =
+    match i with
+    | Bril.Label l -> i :: acc, v
+    | Bril.Const ((n, _), c) ->
+      i :: acc, { v with vvs = List.Assoc.add v.vvs n (Const c) ~equal }
+    | Binary ((n, t), op, n1, n2) ->
+      let v1 =
+        List.Assoc.find v.vvs n1 ~equal
+        |> Option.value_map ~default:Uninit ~f:Fn.id in
+      let v2 =
+        List.Assoc.find v.vvs n2 ~equal
+        |> Option.value_map ~default:Uninit ~f:Fn.id in
+      let v0 = symb_binop op v1 v2 in
+      let v = { v with vvs = List.Assoc.add v.vvs n v0 ~equal } in
+      begin match v0 with
+        | Uninit | Conflict -> i :: acc, v
+        | Const c -> Const ((n, t), c) :: acc, v end
+    | Unary ((n, t), op, n1) ->
+      let v1 =
+        List.Assoc.find v.vvs n1 ~equal
+        |> Option.value_map ~default:Uninit ~f:Fn.id in
+      let v0 = symb_unop op v1 in
+      let v = { v with vvs = List.Assoc.add v.vvs n v0 ~equal } in
+      begin match v0 with
+        | Uninit | Conflict -> i :: acc, v
+        | Const c -> Const ((n, t), c) :: acc, v end
+    | Jmp l -> i :: acc, v
+    | Br (arg, l1, l2) ->
+      let varg =
+        List.Assoc.find v.vvs arg ~equal
+        |> Option.value_map ~default:Uninit ~f:Fn.id in
+      begin match varg with
+        | Uninit | Conflict -> i :: acc, v
+        | Const (Bool true) -> Jmp l1 :: acc, v
+        | Const (Bool false) -> Jmp l2 :: acc, v
+        | _ -> failwith "malformed branch" end
+    | Call (Some (n, t), _, _) ->
+      i :: acc, {v with vvs = List.Assoc.add v.vvs n Conflict ~equal }
+    | Call (None, _, _) -> i :: acc, v
+    | Ret _ -> i :: acc, v
+    | Print _ -> i :: acc, v
+    | Nop -> i :: acc, v in
+  let is', outv = List.fold is ~init:([], inv) ~f in
+  List.rev is', outv
 
 let var_vals_equal v1 v2 =
   match v1, v2 with
