@@ -1,0 +1,20 @@
+@main {
+  x: int = const 1;
+  two: int = const 2;
+  cond: bool = lt x two;
+  br cond .if .else;
+.if:
+  five: int = const 5;
+  y: int = add five x;
+  jmp .end;
+.else:
+  y: int = call @f x;
+  jmp .end;
+.end:
+  z: int = mul y y;
+  print z;
+}
+
+@f(n: int): int {
+  ret n;
+}

@@ -40,12 +40,22 @@ let do_lvn () =
   |> Bril.to_string
   |> Out_channel.output_string Out_channel.stdout
 
-let do_command (help : bool) (contrived : bool) (nop : bool) (tdce : bool) (lvn : bool) : unit =
+let do_cp () =
+  In_channel.input_all In_channel.stdin
+  |> Bril.from_string
+  |> Dataflow.cp
+  |> Tdce.elim_dead
+  |> Bril.to_string
+  |> Out_channel.output_string Out_channel.stdout
+
+let do_command (help : bool) (contrived : bool) (nop : bool) (tdce : bool)
+    (lvn : bool) (cp : bool) : unit =
   if help then do_help ()
   else if contrived then do_contrived ()
   else if nop then do_nop ()
   else if tdce then do_tdce ()
   else if lvn then do_lvn ()
+  else if cp then do_cp ()
   else do_help ()
 
 let spec = 
@@ -55,10 +65,12 @@ let spec =
   +> flag "--nop" no_arg ~doc:nop_doc
   +> flag "--tdce" no_arg ~doc:tdce_doc
   +> flag "--lvn" no_arg ~doc:lvn_doc
+  +> flag "--cp" no_arg ~doc:lvn_doc
 
 let command = Command.basic_spec
   ~summary:"summary is empty for now"
   ~readme:(fun () -> "also empty for now")
-  spec (fun help contrived nop tdce lvn () -> do_command help contrived nop tdce lvn)
+  spec (fun help contrived nop tdce lvn cp () ->
+    do_command help contrived nop tdce lvn cp)
 
 let () = Command.run ~version:"1.0" ~build_info:"something" command
