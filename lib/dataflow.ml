@@ -33,14 +33,55 @@ let empty l = List.length l |> Int.equal 0
 
 let mem l v = List.exists l ~f:(fun x -> String.equal v x)
 
-let merge (v1 : cp_val) (v2 : cp_val) : cp_val = init_cp (* TODO *)
+let merge_block v1 v2 =
+  match v1, v2 with
+  | Reachable, _ | _, Reachable -> Reachable
+  | _, _ -> Unreachable
+
+let merge_var v1 v2 =
+  match v1, v2 with
+  | Uninit, _ -> v2
+  | _, Uninit -> v1
+  | Conflict, _ | _, Conflict -> Conflict
+  | Const c1, Const c2 ->
+    if Bril.equal_const c1 c2 then Const c1 else Conflict
+
+let merge (v1 : cp_val) (v2 : cp_val) : cp_val = {
+  bv = merge_block v1.bv v2.bv;
+  vvs = List.fold v2.vvs ~init:v1.vvs
+    ~f:(fun acc (n, v) -> List.Assoc.add acc n
+      (merge_var (List.Assoc.find acc n ~equal:String.equal
+          |> Option.value_map ~default:v ~f:Fn.id) v) ~equal:String.equal);
+}
 
 let mergel = List.fold ~init:init_cp ~f:merge
 
 let transfer (is : Bril.instr list) (inv : cp_val) : Bril.instr list * cp_val =
-  is, inv
+  is, inv (* TODO *)
 
-let vals_equal (v1 : cp_val) (v2 : cp_val) : bool = false
+let var_vals_equal v1 v2 =
+  match v1, v2 with
+  | Uninit, Uninit | Conflict, Conflict -> true
+  | Const c1, Const c2 -> Bril.equal_const c1 c2
+  | _ -> false
+
+let is_uninit v =
+  match v with
+  | Uninit -> true 
+  | _ -> false
+
+let vals_equal (v1 : cp_val) (v2 : cp_val) : bool =
+  let bveq = match v1.bv, v2.bv with
+    | Reachable, Reachable | Unreachable, Unreachable -> true
+    | _ -> false in
+  let vvseq = List.for_all v1.vvs
+    ~f:(fun (n, v) -> List.Assoc.find v2.vvs n ~equal:String.equal
+      |> Option.value_map ~default:(is_uninit v) ~f:(var_vals_equal v)) &&
+    List.for_all v2.vvs
+      ~f:(fun (n, v) -> List.Assoc.find v1.vvs n ~equal:String.equal
+        |> Option.value_map ~default:(is_uninit v) ~f:(var_vals_equal v)) in
+  bveq && vvseq
+  
 
 let cp_worklist (blocks : (string * Bril.instr list) list)
     (edges : (string * string list) list) : (string * Bril.instr list) list =
