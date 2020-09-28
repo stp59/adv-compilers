@@ -21,7 +21,7 @@ test-lvn: build
 	@turnt test-lvn/*.bril
 
 test-cp: build
-	@turnt -pv test-cp/*.bril
+	@turnt test-cp/*.bril
 
 test: build
 	@turnt benchmarks/*.bril

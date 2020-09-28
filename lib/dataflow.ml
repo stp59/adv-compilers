@@ -40,8 +40,7 @@ let merge_block v1 v2 =
 
 let merge_var v1 v2 =
   match v1, v2 with
-  | Uninit, _ -> v2
-  | _, Uninit -> v1
+  | Uninit, v | v, Uninit -> v1
   | Conflict, _ | _, Conflict -> Conflict
   | Const c1, Const c2 ->
     if Bril.equal_const c1 c2 then Const c1 else Conflict
@@ -181,7 +180,11 @@ let cp_worklist (blocks : (string * Bril.instr list) list)
       |> List.map ~f:fst in
     let inv = mergel (List.map preds ~f:(fun n -> (List.Assoc.find_exn vals n ~equal).outv)) in
     let b', outv = transfer (List.Assoc.find_exn blocks curr ~equal) inv in
-    let wklst = if vals_equal outv v.outv then wklst else curr :: wklst in
+    let wklst =
+      if vals_equal outv v.outv
+      then wklst
+      else (List.Assoc.find edges curr ~equal
+        |> Option.value_map ~default:[] ~f:Fn.id) @ wklst in
     let vals =
       if empty b'
       then List.Assoc.remove vals curr ~equal
