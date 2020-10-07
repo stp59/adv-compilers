@@ -1,3 +1,2 @@
-command = "bril2json < {filename} | ../bril-opt --nop | brili -p {args}"
+command = "bril2json < {filename} | ../bril-opt --to-ssa | ../bril-opt --of-ssa | brili -p {args}"
 output.out = "-"
-output.prof = "2"
