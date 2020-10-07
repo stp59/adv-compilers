@@ -31,7 +31,8 @@ let rec elim_dead_block (instrs : Bril.instr list) : Bril.instr list =
     | Ret (Some arg) -> dels, List.Assoc.remove defs arg ~equal
     | Ret None -> dels, defs
     | Print args -> dels, List.fold args ~init:defs ~f:(List.Assoc.remove ~equal)
-    | Nop -> dels, defs in
+    | Nop -> dels, defs
+    | Phi _ -> failwith "phi node tdce unsupported" in
   let unused = List.foldi ~f ~init:([], []) instrs |> fst in
   let instrs' = List.filteri instrs
     ~f:(fun i _ -> List.mem unused i ~equal:Int.equal |> not) in
@@ -74,7 +75,8 @@ let rec elim_dead_global (func : Bril.func) : Bril.func =
     | Ret (Some arg) -> defs, arg :: uses
     | Ret None -> defs, uses
     | Print args -> defs, args @ uses
-    | Nop -> defs, uses in
+    | Nop -> defs, uses
+    | Phi _ -> failwith "phi node tdce unsupported" in
   let defs, uses = List.foldi ~f ~init:([], []) func.instrs in
   let unused = 
     List.filter defs ~f:(fun (v, _) -> List.mem uses v ~equal |> not)

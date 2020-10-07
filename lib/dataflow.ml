@@ -140,7 +140,8 @@ let transfer (is : Bril.instr list) (inv : cp_val) : Bril.instr list * cp_val =
     | Call (None, _, _) -> i :: acc, v
     | Ret _ -> i :: acc, v
     | Print _ -> i :: acc, v
-    | Nop -> i :: acc, v in
+    | Nop -> i :: acc, v
+    | Phi _ -> failwith "phi node cp dataflow unsupported" in
   let is', outv = List.fold is ~init:([], inv) ~f in
   List.rev is', outv
 
@@ -166,7 +167,6 @@ let vals_equal (v1 : cp_val) (v2 : cp_val) : bool =
       ~f:(fun (n, v) -> List.Assoc.find v1.vvs n ~equal:String.equal
         |> Option.value_map ~default:(is_uninit v) ~f:(var_vals_equal v)) in
   bveq && vvseq
-  
 
 let cp_worklist (blocks : (string * Bril.instr list) list)
     (edges : (string * string list) list) : (string * Bril.instr list) list =

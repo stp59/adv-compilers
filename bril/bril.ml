@@ -89,6 +89,7 @@ type instr =
   | Ret of arg option
   | Print of arg list
   | Nop
+  | Phi of dest * arg list * label list
 [@@deriving sexp_of]
 
 type func = {
@@ -200,6 +201,7 @@ let from_json json =
         | "ret" -> Ret (if List.is_empty (args ()) then None else Some (arg 0))
         | "print" -> Print (args ())
         | "nop" -> Nop
+        | "phi" -> Phi (dest (), args (), labels ())
         | op -> failwithf "invalid op: %s" op ())
     | json -> failwithf "invalid label: %s" (json |> to_string) ()
   in
@@ -276,6 +278,13 @@ let to_string { funcs } =
         `Assoc
           [ ("op", `String "print"); ("args", `List (List.map args ~f:(fun arg -> `String arg))) ]
     | Nop -> `Assoc [ ("op", `String "nop") ]
+    | _ -> failwith ""
+    (* | Phi (dest, args, ls) -> 
+      `Assoc (
+      [ ("op", `String "phi");
+        ("args", `List (List.map args ~f:(fun arg -> `STring args)));
+        ("labels", `List (List.map ls ~f:(fun l -> `String l))); ] 
+        @ of_dest dest) *)
   in
   let of_func { name; args; ret_type; instrs; _ } =
     if Option.is_some ret_type then

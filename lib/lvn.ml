@@ -177,7 +177,8 @@ let num_val_block (args : Bril.dest list) (block : Bril.instr list) : Bril.instr
           |> Option.map ~f:(fun v -> List.nth_exn tbl v |> snd |> fst)
           |> Option.value ~default:(List.nth_exn args i)) in
       tbl, var_num, Print args' :: acc
-    | Nop -> tbl, var_num, Nop :: acc in
+    | Nop -> tbl, var_num, Nop :: acc
+    | Phi _ -> failwith "phi node lvn not supported" in
   let tbl_init = List.mapi args ~f:(fun i dest -> (Arg i ,dest)) in
   let var_num_init = List.mapi args ~f:(fun i dest -> (fst dest, i)) in
   List.foldi block ~init:(tbl_init, var_num_init, []) ~f |> Tuple.T3.get3 |> List.rev

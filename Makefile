@@ -23,5 +23,8 @@ test-lvn: build
 test-cp: build
 	@turnt test-cp/*.bril
 
+test-to-ssa: build
+	@turnt test-tossa/*.bril
+
 test: build
 	@turnt benchmarks/*.bril
