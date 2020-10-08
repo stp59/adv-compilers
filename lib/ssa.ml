@@ -70,11 +70,77 @@ let get_frontiers (cfg : Bril.cfg) (doms : dominance_map) : dominance_map =
   let f n = n, List.filter nodes ~f:(fun v -> is_frontier cfg doms n v) in
   List.map nodes ~f
 
+let add_label (n, is : string * Bril.instr list) : string * Bril.instr list =
+  match List.hd_exn is with
+  | Label _ -> n, is
+  | _ -> n, Label n :: is
+
+let add_labels_instrs (intrs : Bril.instr list) : Bril.instr list =
+  let cfg = Bril.to_blocks_and_cfg intrs in
+  let blocks = List.map cfg.blocks ~f:add_label in
+  List.fold blocks ~init:[] ~f:(fun acc (_, is) -> acc @ is)
+
+let add_labels_func (func : Bril.func) : Bril.func =
+  { func with instrs = add_labels_instrs func.instrs }
+
 let add_labels (bril : Bril.t) : Bril.t =
-  bril (* TODO *)
+  { funcs = List.map bril.funcs ~f:add_labels_func }
+
+let get_vars (args : Bril.dest list) (instrs : Bril.instr list) : Bril.dest list =
+  let f acc instr =
+    let def = match instr with
+      | Bril.Const (dest, _) | Bril.Binary (dest, _, _, _)
+      | Bril.Unary (dest, _, _) | Bril.Call (Some dest, _, _)
+      | Bril.Phi (dest, _, _) -> Some dest
+      | _ -> None in
+    Option.value_map def ~default:acc
+      ~f:(fun (v, t) -> List.Assoc.add acc v t ~equal) in
+  List.fold instrs ~init:args ~f
+
+let defs_var (v : string) (instrs : Bril.instr list) : bool =
+  let f instr =
+    match instr with
+    | Bril.Const ((dest, _), _) | Bril.Binary ((dest, _), _, _, _)
+    | Bril.Unary ((dest, _), _, _) | Bril.Call (Some (dest, _), _, _)
+    | Bril.Phi ((dest, _), _, _) -> equal dest v
+    | _ -> false in
+  List.exists instrs ~f
+
+let get_var_defs (v : string) (cfg : Bril.cfg) : string list =
+  let nodes = List.map cfg.blocks ~f:fst in
+  List.filter nodes
+    ~f:(fun n -> List.Assoc.find_exn cfg.blocks n ~equal |> defs_var v)
+
+let insert_phis (args : Bril.dest list) (instrs : Bril.instr list) : Bril.instr list =
+  let vars = get_vars args instrs in
+  let cfg = Bril.to_blocks_and_cfg instrs in
+  let doms = get_dominance_map cfg in
+  let fronts = get_frontiers cfg doms in
+  let cfg' =
+    List.fold vars ~init:cfg ~f:(fun cfg (var, t) ->
+      let defs = get_var_defs var cfg in
+      List.fold defs ~init:cfg ~f:(fun cfg def ->
+        let deffronts = List.Assoc.find_exn fronts def ~equal in
+        List.fold deffronts ~init:cfg ~f:(fun cfg front ->
+          let blck = List.Assoc.find_exn cfg.blocks front ~equal in
+          let blck' = match List.hd_exn blck with
+            | Phi ((dest, t), args, ls) when (equal dest var) ->
+              Bril.Phi ((var, t), var :: args, def :: ls) :: List.tl_exn blck
+            | _ -> Phi ((var, t), [var], [def]) :: blck in
+          { cfg with blocks = List.Assoc.add cfg.blocks front blck' ~equal }))) in
+  List.fold cfg'.blocks ~init:[] ~f:(fun acc (_, is) -> acc @ is)
+
+let rename_vars (args : Bril.dest list) (instrs : Bril.instr list) : Bril.instr list =
+  instrs (* TODO *)
+
+let ssa_of_instrs (args : Bril.dest list) (instrs : Bril.instr list) : Bril.instr list =
+  instrs |> insert_phis args |> rename_vars args
+
+let ssa_of_func (func : Bril.func) : Bril.func =
+  { func with instrs = ssa_of_instrs func.args func.instrs }
 
 let ssa_of_bril (bril : Bril.t) : Bril.t =
-  bril (* TODO *)
+  { funcs = List.map bril.funcs ~f:ssa_of_func }
 
 let bril_of_ssa (bril : Bril.t) : Bril.t =
   bril (* TODO *)
