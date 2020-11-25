@@ -8,6 +8,12 @@ type dominance_tree =
 
 let equal = String.equal
 
+let fresh_suff =
+  let box = ref 0 in fun () ->
+  let n = !box in
+  box := !box + 1;
+  "__" ^ (string_of_int n)
+
 let mem e l= List.exists l ~f:(fun s -> equal s e)
 
 let get_preds (v : string) (cfg : Bril.cfg) : string list =
@@ -131,7 +137,69 @@ let insert_phis (args : Bril.dest list) (instrs : Bril.instr list) : Bril.instr 
   List.fold cfg'.blocks ~init:[] ~f:(fun acc (_, is) -> acc @ is)
 
 let rename_vars (args : Bril.dest list) (instrs : Bril.instr list) : Bril.instr list =
-  instrs (* TODO *)
+  let cfg = Bril.to_blocks_and_cfg instrs in
+  let nodes = List.map cfg.blocks ~f:fst in
+  let vars = get_vars args instrs |> List.map ~f:fst in
+  let stacks = List.map vars ~f:(fun v -> v, [v]) in
+  let entry = List.hd_exn nodes in
+  let rename_instr stack i =
+    let open Bril in
+    match i with
+    | Label l -> stack, Label l
+    | Const ((v, t), c) ->
+      let fresh = v ^ (fresh_suff ()) in 
+      List.Assoc.add stack v ~equal (fresh :: List.Assoc.find_exn stack v ~equal),
+      Const ((fresh, t), c)
+    | Binary ((v, t), o, a1, a2) ->
+      let fresh = v ^ (fresh_suff ()) in
+      List.Assoc.add stack v ~equal (fresh :: List.Assoc.find_exn stack v ~equal),
+      Binary ((fresh, t), o,
+        List.Assoc.find_exn stack a1 ~equal |> List.hd_exn,
+        List.Assoc.find_exn stack a2 ~equal |> List.hd_exn)
+    | Unary ((v, t), o, a) ->
+      let fresh = v ^ (fresh_suff ()) in
+      List.Assoc.add stack v ~equal (fresh :: List.Assoc.find_exn stack v ~equal),
+      Unary ((fresh, t), o, List.Assoc.find_exn stack a ~equal |> List.hd_exn)
+    | Jmp l -> stack, Jmp l
+    | Br (a, l1, l2) ->
+      stack, Br (List.Assoc.find_exn stack a ~equal |> List.hd_exn, l1, l2)
+    | Call (Some (v, t), f, args) ->
+      let fresh = v ^ (fresh_suff ()) in
+      List.Assoc.add stack v ~equal (fresh :: List.Assoc.find_exn stack v ~equal),
+      Call (Some (fresh, t), f, List.map args
+        ~f:(fun a -> List.Assoc.find_exn stack a ~equal |> List.hd_exn))
+    | Call (None, f, args) ->
+      stack, Call (None, f, List.map args
+        ~f:(fun a -> List.Assoc.find_exn stack a ~equal |> List.hd_exn))
+    | Ret (Some a) ->
+      stack, Ret (Some (List.Assoc.find_exn stack a ~equal |> List.hd_exn))
+    | Ret None -> stack, Ret None
+    | Print args ->
+      stack, Print (List.map args
+        ~f:(fun a -> List.Assoc.find_exn stack a ~equal |> List.hd_exn))
+    | Nop -> stack, Nop
+    | Phi ((v, t), args, ls) ->
+      let fresh = v ^ (fresh_suff ())
+      List.Assoc.add stack v ~equal (fresh :: List.Assoc.find_exn stack v ~equal),
+      Phi ((fresh, t), args, ls) in
+  let rename_phi succ (cfg : Bril.cfg) =
+    let is = List.Assoc.find_exn cfg.blocks succ ~equal in
+    let f i =
+      match i with
+      | Phi ((v, t), args, ls) ->
+    let is = List.map is ~f in
+    { cfg with block = List.Assoc.add cfg.blocks succ is ~equal } in
+  let rename_block block (cfg : Bril.cfg) stacks =
+    let is = List.Assoc.find_exn cfg.blocks block ~equal in
+    let (stack', is) = List.fold_map is ~init:stacks ~f:rename_instr in
+    let succs = List.Assoc.find_exn cfg.edges block ~equal in
+    let cfg = { cfg with blocks = List.Assoc.add cfg.blocks block is } in
+    let cfg = List.fold succs ~init:cfg ~f:rename_phi in
+    cfg in
+  (rename_block entry cfg stacks).blocks
+  |> List.map ~f:snd
+  |> List.fold ~init:[] ~f:(@)
+
 
 let ssa_of_instrs (args : Bril.dest list) (instrs : Bril.instr list) : Bril.instr list =
   instrs |> insert_phis args |> rename_vars args
