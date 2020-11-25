@@ -53,3 +53,7 @@ Implements a version of the constant propagation dataflow analysis, with the
 worklist algorithm modifying the program as it goes. Improves the dynamic
 instruction count of the benchmarks without any correctness cost, and behaves
 predictably on the example program test-cp/fold.bril.
+
+# ssa.ml
+
+An unfinished implementation of SSA. No way to test it properly yet.
