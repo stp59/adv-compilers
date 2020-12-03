@@ -1,1 +1,1 @@
-command = "bril2json < {filename} | ../bril-opt --to-ssa | bril2txt"
+command = "bril2json < {filename} | ../bril-opt --tossa | bril2txt"

@@ -89,7 +89,7 @@ type instr =
   | Ret of arg option
   | Print of arg list
   | Nop
-  | Phi of dest * arg list * label list
+  | Phi of dest * arg list * label list * dest
 [@@deriving sexp_of]
 
 type func = {
@@ -108,7 +108,7 @@ type cfg = {
 } [@@deriving sexp_of]
 
 let to_blocks_and_cfg instrs =
-  let block_name i = sprintf "block%d" i in
+  let block_name i = sprintf "b%d" (i + 1) in
   let (name, block, blocks) =
     List.fold instrs
       ~init:(block_name 0, [], [])
@@ -126,6 +126,7 @@ let to_blocks_and_cfg instrs =
     (name, List.rev block) :: blocks
     |> List.filter ~f:(fun (_, block) -> not (List.is_empty block))
   in
+  let blocks = List.rev blocks in
   let edges =
     List.mapi blocks ~f:(fun i (name, block) ->
         let next =
@@ -140,6 +141,7 @@ let to_blocks_and_cfg instrs =
         in
         (name, next))
   in
+  (* print_endline "got blocks and edges"; *)
   { blocks; edges; }
 
 let from_json json =
@@ -201,7 +203,7 @@ let from_json json =
         | "ret" -> Ret (if List.is_empty (args ()) then None else Some (arg 0))
         | "print" -> Print (args ())
         | "nop" -> Nop
-        | "phi" -> Phi (dest (), args (), labels ())
+        | "phi" -> Phi (dest (), args (), labels (), dest ())
         | op -> failwithf "invalid op: %s" op ())
     | json -> failwithf "invalid label: %s" (json |> to_string) ()
   in
@@ -278,13 +280,13 @@ let to_string { funcs } =
         `Assoc
           [ ("op", `String "print"); ("args", `List (List.map args ~f:(fun arg -> `String arg))) ]
     | Nop -> `Assoc [ ("op", `String "nop") ]
-    | _ -> failwith ""
-    (* | Phi (dest, args, ls) -> 
+    (* | _ -> failwith "" *)
+    | Phi (dest, args, ls, _) -> 
       `Assoc (
       [ ("op", `String "phi");
-        ("args", `List (List.map args ~f:(fun arg -> `STring args)));
+        ("args", `List (List.map args ~f:(fun arg -> `String arg)));
         ("labels", `List (List.map ls ~f:(fun l -> `String l))); ] 
-        @ of_dest dest) *)
+        @ of_dest dest)
   in
   let of_func { name; args; ret_type; instrs; _ } =
     if Option.is_some ret_type then

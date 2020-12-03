@@ -7,6 +7,7 @@ default: build
 build:
 	@dune build bin/main.exe
 	@cp _build/default/bin/main.exe bril-opt
+	@echo
 
 clean:
 	@dune clean

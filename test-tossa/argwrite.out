@@ -3,10 +3,8 @@
   cond.0: bool = const true;
   br cond.0 .here .there;
 .here:
-  a.0: int = const 5;
-  jmp .there;
+  a.1: int = const 5;
 .there:
-  a.1: int = phi a a.0 .b1 .here;
-  print a.1;
-  ret;
+  a.0: int = phi a.1 a .here .b1;
+  print a.0;
 }

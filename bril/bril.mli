@@ -57,7 +57,7 @@ type instr =
   | Ret of arg option
   | Print of arg list
   | Nop
-  | Phi of dest * arg list * label list
+  | Phi of dest * arg list * label list * dest
 [@@deriving sexp_of]
 
 type func = {

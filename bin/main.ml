@@ -51,6 +51,7 @@ let do_cp () =
   |> Out_channel.output_string Out_channel.stdout
 
 let do_to_ssa () =
+  (* print_endline "doing to ssa"; *)
   In_channel.input_all In_channel.stdin
   |> Bril.from_string
   |> Ssa.ssa_of_bril
@@ -64,33 +65,34 @@ let do_of_ssa () =
   |> Bril.to_string
   |> Out_channel.output_string Out_channel.stdout
 
-let do_command (help : bool) (contrived : bool) (nop : bool) (tdce : bool)
+let do_command (contrived : bool) (nop : bool) (tdce : bool)
     (lvn : bool) (cp : bool) (to_ssa : bool) (of_ssa : bool) : unit =
-  if help then do_help ()
-  else if contrived then do_contrived ()
+  (* if help then do_help () *)
+  if contrived then do_contrived ()
   else if nop then do_nop ()
   else if tdce then do_tdce ()
   else if lvn then do_lvn ()
   else if cp then do_cp ()
   else if to_ssa then do_to_ssa ()
   else if of_ssa then do_of_ssa ()
-  else do_help ()
+  else print_endline "no flags"
+  (* else do_help () *)
 
 let spec = 
   empty
-  +> flag "--help" no_arg ~doc:help_doc
+  (* +> flag "--help" no_arg ~doc:help_doc *)
   +> flag "--contrived" no_arg ~doc:contrived_doc
   +> flag "--nop" no_arg ~doc:nop_doc
   +> flag "--tdce" no_arg ~doc:tdce_doc
   +> flag "--lvn" no_arg ~doc:lvn_doc
   +> flag "--cp" no_arg ~doc:lvn_doc
-  +> flag "--to-ssa" no_arg ~doc:to_ssa_doc
-  +> flag "--of-ssa" no_arg ~doc:of_ssa_doc
+  +> flag "--tossa" no_arg ~doc:to_ssa_doc
+  +> flag "--ofssa" no_arg ~doc:of_ssa_doc
 
 let command = Command.basic_spec
   ~summary:"summary is empty for now"
   ~readme:(fun () -> "also empty for now")
-  spec (fun help contrived nop tdce lvn cp to_ssa of_ssa () ->
-    do_command help contrived nop tdce lvn cp to_ssa of_ssa)
+  spec (fun contrived nop tdce lvn cp to_ssa of_ssa () ->
+    do_command contrived nop tdce lvn cp to_ssa of_ssa)
 
 let () = Command.run ~version:"1.0" ~build_info:"something" command
