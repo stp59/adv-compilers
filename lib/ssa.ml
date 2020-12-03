@@ -23,10 +23,10 @@ let get_dominance_map (cfg : Bril.cfg) : dominance_map =
   let init = List.map ~f:(fun v -> v, nodes) nodes in
   let rec f acc =
     let update acc v =
-      (* print_endline v; *)
+      (* print_endline ("updating " ^ v); *)
       let preds = get_preds v cfg in
-      (* print_endline (string_of_int (List.length preds)); *)
-      (* List.iter preds ~f:(print_endline); *)
+      (* print_endline ("there are " ^ (string_of_int (List.length preds)) ^ " preds"); *)
+      (* List.iter preds ~f:(fun y -> print_endline ("\t" ^ y)); *)
       if Int.equal (List.length preds) 0
       then List.Assoc.add acc v [v] ~equal
       else
@@ -35,14 +35,17 @@ let get_dominance_map (cfg : Bril.cfg) : dominance_map =
           |> List.Assoc.find_exn acc ~equal
           |> List.filter ~f:(fun n -> List.for_all preds
             ~f:(fun pred -> mem n (List.Assoc.find_exn acc pred ~equal))) in
+        (* print_endline ("there are " ^ (string_of_int (List.length doms)) ^ " doms now"); *)
+        (* List.iter doms ~f:(fun y -> print_endline ("\t" ^ y)); *)
         List.Assoc.add acc v (if mem v doms then doms else v :: doms) ~equal in
     let acc' = List.fold ~init:acc ~f:update nodes in
     (* List.iter nodes ~f:(fun v -> List.Assoc.find_exn acc' v ~equal |> List.length |> string_of_int |> print_endline; *)
       (* List.Assoc.find_exn acc v ~equal |> List.length |> string_of_int |> print_endline); *)
-    let changed = List.for_all nodes
+    let unchanged = List.for_all nodes
       ~f:(fun v -> Int.equal (List.Assoc.find_exn acc' v ~equal |> List.length)
-        (List.Assoc.find_exn acc v ~equal |> List.length)) in
-    if changed then f acc' else acc' in
+          (List.Assoc.find_exn acc v ~equal |> List.length)) in
+        (* List.fold ~init:true ~f:(fun b v' -> b && mem v' (List.Assoc.find_exn acc v ~equal)))) in *)
+    if unchanged then acc' else f acc' in
   f init
 
 let strictly_dominates (doms : dominance_map) (a : string) (b : string) : bool =
@@ -81,7 +84,7 @@ let is_frontier (cfg : Bril.cfg) (doms : dominance_map) (a : string)
     (b : string) : bool =
   let bpreds = get_preds b cfg in
   let bdoms = List.Assoc.find_exn doms b ~equal in
-  let adomsb = mem a bdoms in
+  let adomsb = mem a bdoms && not (equal a b) in
   let adoms_predb =
     List.exists bpreds ~f:(fun n -> List.Assoc.find_exn doms n ~equal |> mem a) in
   (* (if adomsb then print_endline (a ^ " dominates " ^ b) else ()); *)
@@ -130,7 +133,8 @@ let defs_var (v : string) (instrs : Bril.instr list) : bool =
     match instr with
     | Bril.Const ((dest, _), _) | Bril.Binary ((dest, _), _, _, _)
     | Bril.Unary ((dest, _), _, _) | Bril.Call (Some (dest, _), _, _)
-    | Bril.Phi ((dest, _), _, _, _) -> equal dest v
+    | Bril.Phi ((dest, _), _, _, _) ->
+      equal (String.split_on_chars ~on:['.'] dest |> List.hd_exn) v
     | _ -> false in
   List.exists instrs ~f
 
@@ -155,7 +159,7 @@ let insert_phis (args : Bril.dest list) (cfg : Bril.cfg) doms : Bril.cfg =
       (* print_endline ("\t" ^ def); *)
       let deffronts = List.Assoc.find_exn fronts def ~equal in
       List.fold deffronts ~init:cfg ~f:(fun cfg front ->
-        (* print_endline ("\t" ^ front); *)
+        (* print_endline ("\t\t" ^ front); *)
         let blck = List.Assoc.find_exn cfg.blocks front ~equal in
         let blck' = match blck with
           | Label _ :: Phi ((dest, t), _, _, _) :: _ when (equal dest var) -> blck
@@ -163,6 +167,9 @@ let insert_phis (args : Bril.dest list) (cfg : Bril.cfg) doms : Bril.cfg =
           | _ -> Phi ((var, t), [], [], (var, t)) :: blck in
         { cfg with blocks = List.Assoc.add cfg.blocks front blck' ~equal })))
   (* List.fold cfg'.blocks ~init:[] ~f:(fun acc (_, is) -> is @ acc) *)
+
+let block_defs_var (cfg : Bril.cfg) (block : string) (var : string) : bool =
+  defs_var var (List.Assoc.find_exn cfg.blocks block ~equal)
 
 let rename_vars (args : Bril.dest list) (cfg : Bril.cfg) doms entry : Bril.cfg =
   (* print_endline "renaming vars"; *)
@@ -226,7 +233,10 @@ let rename_vars (args : Bril.dest list) (cfg : Bril.cfg) doms entry : Bril.cfg =
     let f i =
       match i with
       | Bril.Phi ((v, t), args, ls, (v', t')) ->
-        Bril.Phi ((v, t), (List.Assoc.find_exn stacks v' ~equal |> List.hd_exn) :: args, block :: ls, (v', t'))
+        Bril.Phi ((v, t),
+          (List.Assoc.find_exn stacks v' ~equal |> List.hd_exn) :: args,
+          block :: ls,
+          (v', t'))
       | _ -> i in
     let is = List.map is ~f in
     { cfg with blocks = List.Assoc.add cfg.blocks succ is ~equal } in
@@ -251,17 +261,42 @@ let rename_vars (args : Bril.dest list) (cfg : Bril.cfg) doms entry : Bril.cfg =
   (* print_endline ("entry: " ^ entry); *)
   rename_block entry cfg stacks
 
+let remove_uninit_phis args = function
+  | Bril.Phi (dest, a, l, dest') ->
+    let zipped = List.zip_exn a l in
+    let zipped = List.filter zipped ~f:(fun (a, l) -> String.contains a '.' || mem a args) in
+    let a, l = List.unzip zipped in
+    Bril.Phi (dest, a, l, dest')
+  | i -> i
+
+let is_single_phi = function
+  | Bril.Phi (dest, [ a ], [ l ], dest') -> true
+  | _ -> false
+
 let ssa_of_instrs (args : Bril.dest list) (instrs : Bril.instr list) : Bril.instr list =
   let cfg = Bril.to_blocks_and_cfg instrs in
   let order = cfg.blocks |> List.map ~f:fst in
   let entry = List.hd_exn order in
+  let cfg, order, entry =
+    let open Bril in
+    if List.exists cfg.edges ~f:(fun (e, succs) -> mem entry succs)
+    then
+      { blocks = ("entry1", [Label "entry1"; Jmp entry ]) :: cfg.blocks;
+        edges = ("entry1", [entry]) :: cfg.edges },
+      "entry1" :: order,
+      "entry1"
+    else cfg, order, entry in
   let doms = get_dominance_map cfg in
+  (* print_endline "loop doms are"; *)
+  (* List.iter (List.Assoc.find_exn doms "loop" ~equal) ~f:print_endline; *)
   (* let () = failwith "end" in *)
   let cfg = insert_phis args cfg doms in
   (* let () = failwith "end" in *)
   let cfg = rename_vars args cfg doms entry in
   let blocks = List.map order ~f:(List.Assoc.find_exn cfg.blocks ~equal) in
   List.fold ~init:[] ~f:(@) blocks
+  |> List.map ~f:(remove_uninit_phis (List.map args ~f:fst))
+  |> List.filter ~f:(fun x -> not (is_single_phi x))
 
 let ssa_of_func (func : Bril.func) : Bril.func =
   { func with instrs = ssa_of_instrs func.args func.instrs }
