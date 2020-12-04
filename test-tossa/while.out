@@ -1,6 +1,4 @@
 @main(a: int) {
-.entry1:
-  jmp .while.cond;
 .while.cond:
   a.0: int = phi a.1 a .while.body .entry1;
   zero.1: int = const 0;

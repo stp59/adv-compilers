@@ -1,7 +1,6 @@
 @main {
 .entry:
   i.0: int = const 1;
-  jmp .loop;
 .loop:
   i.1: int = phi i.2 i.0 .body .entry;
   max.1: int = const 10;

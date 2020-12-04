@@ -7,7 +7,6 @@
   jmp .end;
 .right:
   a: int = const 2;
-  jmp .end;
 .end:
   print a;
 }

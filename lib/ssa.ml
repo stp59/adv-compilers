@@ -1,4 +1,5 @@
 open Core
+open Util
 
 type dominance_map = (string * string list) list
 
@@ -6,27 +7,14 @@ type dominance_tree =
   | Leaf
   | Node of string * dominance_tree list
 
-let equal = String.equal
-
-let mem e l= List.exists l ~f:(fun s -> equal s e)
-
-let get_preds (v : string) (cfg : Bril.cfg) : string list =
-  cfg.blocks
-  |> List.map ~f:fst
-  |> List.filter ~f:(fun n -> List.Assoc.find_exn cfg.edges n ~equal |> mem v)
-
-(** will map nodes to their dominators*)
+(** [get_dominance_map cfg] is a map from blocks [b] to a list of blocks which
+    dominate [b] in the [cfg]. *)
 let get_dominance_map (cfg : Bril.cfg) : dominance_map =
-  (* print_endline "entry successors are: "; *)
-  (* List.iter (List.Assoc.find_exn cfg.edges "here" ~equal) ~f:(fun x -> print_endline ("\t"^ x)); *)
   let nodes = List.map ~f:fst cfg.blocks in
   let init = List.map ~f:(fun v -> v, nodes) nodes in
   let rec f acc =
     let update acc v =
-      (* print_endline ("updating " ^ v); *)
       let preds = get_preds v cfg in
-      (* print_endline ("there are " ^ (string_of_int (List.length preds)) ^ " preds"); *)
-      (* List.iter preds ~f:(fun y -> print_endline ("\t" ^ y)); *)
       if Int.equal (List.length preds) 0
       then List.Assoc.add acc v [v] ~equal
       else
@@ -35,68 +23,49 @@ let get_dominance_map (cfg : Bril.cfg) : dominance_map =
           |> List.Assoc.find_exn acc ~equal
           |> List.filter ~f:(fun n -> List.for_all preds
             ~f:(fun pred -> mem n (List.Assoc.find_exn acc pred ~equal))) in
-        (* print_endline ("there are " ^ (string_of_int (List.length doms)) ^ " doms now"); *)
-        (* List.iter doms ~f:(fun y -> print_endline ("\t" ^ y)); *)
         List.Assoc.add acc v (if mem v doms then doms else v :: doms) ~equal in
     let acc' = List.fold ~init:acc ~f:update nodes in
-    (* List.iter nodes ~f:(fun v -> List.Assoc.find_exn acc' v ~equal |> List.length |> string_of_int |> print_endline; *)
-      (* List.Assoc.find_exn acc v ~equal |> List.length |> string_of_int |> print_endline); *)
     let unchanged = List.for_all nodes
       ~f:(fun v -> Int.equal (List.Assoc.find_exn acc' v ~equal |> List.length)
           (List.Assoc.find_exn acc v ~equal |> List.length)) in
-        (* List.fold ~init:true ~f:(fun b v' -> b && mem v' (List.Assoc.find_exn acc v ~equal)))) in *)
     if unchanged then acc' else f acc' in
   f init
 
+(** [stricly_dominates doms a b] is [true] iff. [a] strictly dominates [b]
+    according to the dominator map [doms]. *)
 let strictly_dominates (doms : dominance_map) (a : string) (b : string) : bool =
   let bdoms = List.Assoc.find_exn doms b ~equal in
   mem a bdoms && not (equal a b)
 
+(** [is_immediate doms a b] is [true] iff. [a] immediately dominates [b]
+    according to the dominator map [doms]. *)
 let is_immediate (doms : dominance_map) (a : string) (b : string) : bool =
-  (* print_endline ("checking if " ^ a ^ " immediately dominates " ^ b); *)
   let nodes = List.map doms ~f:fst in
   let bdoms = List.Assoc.find_exn doms b ~equal in
   let adomsb = mem a bdoms && not (equal a b) in
-  (* let () = if adomsb then print_endline (a ^ " dominates " ^ b) else () in *)
   let f n =
     let ndomsb = strictly_dominates doms n b in
     let adomsn = strictly_dominates doms a n in
-    (* let () = if adomsn && ndomsb then print_endline (n ^ " is intermediary between " ^ a ^ " and " ^ b) else () in *)
     adomsn && ndomsb in
-    (* if ndomsb then adomsn else true in *)
-    (* not (ndomsb && adomsn) in *)
   let cond = List.exists nodes ~f in
-  (* let () = if cond then print_endline "exists intermediary as above" else print_endline "there is no intermediary" in *)
   adomsb && not cond
 
-let dominance_tree (cfg : Bril.cfg) (doms : dominance_map) : dominance_tree =
-  let nodes = List.map cfg.blocks ~f:fst in
-  let entry = List.hd_exn cfg.blocks |> fst in
-  let rec f v =
-    let vdominates =
-      List.filter nodes ~f:(fun n -> List.Assoc.find_exn doms n ~equal |> mem v) in
-    let vimm_dominates =
-      List.filter vdominates ~f:(fun b -> is_immediate doms v b) in
-    Node (v, List.map vimm_dominates ~f) in
-  f entry
-
-let is_frontier (cfg : Bril.cfg) (doms : dominance_map) (a : string)
-    (b : string) : bool =
+(** [is_frontier cfg doms a b] is [true] iff. [b] is in the dominance frontier
+    of [a] in the [cfg]. *)
+let is_frontier (cfg : Bril.cfg) (a : string) (b : string) : bool =
+  let doms = get_dominance_map cfg in
   let bpreds = get_preds b cfg in
   let bdoms = List.Assoc.find_exn doms b ~equal in
   let adomsb = mem a bdoms && not (equal a b) in
   let adoms_predb =
     List.exists bpreds ~f:(fun n -> List.Assoc.find_exn doms n ~equal |> mem a) in
-  (* (if adomsb then print_endline (a ^ " dominates " ^ b) else ()); *)
-  if (not adomsb) && adoms_predb
-  then true 
-    (* (print_endline (b ^ " is in the frontier of " ^ a); true) *)
-  else false
+  (not adomsb) && adoms_predb
 
-let get_frontiers (cfg : Bril.cfg) (doms : dominance_map) : dominance_map =
-  (* print_endline "getting frontier nodes"; *)
+(** [get_frontiers cfg] is a map from blocks [b] to lists of blocks which are in
+    the dominance frontier of [b] in the [cfg]. *)
+let get_frontiers (cfg : Bril.cfg) : dominance_map =
   let nodes = List.map cfg.blocks ~f:fst in
-  let f n = n, List.filter nodes ~f:(fun v -> is_frontier cfg doms n v) in
+  let f n = n, List.filter nodes ~f:(fun v -> is_frontier cfg n v) in
   List.map nodes ~f
 
 let add_label (n, is : string * Bril.instr list) : string * Bril.instr list =
@@ -115,6 +84,8 @@ let add_labels_func (func : Bril.func) : Bril.func =
 let add_labels (bril : Bril.t) : Bril.t =
   { funcs = List.map bril.funcs ~f:add_labels_func }
 
+(** [get_vars args cfg] is a list of all the variables (and their types) that
+    appear in the [cfg], including the [args]. *)
 let get_vars (args : Bril.dest list) (cfg : Bril.cfg) : Bril.dest list =
   let get_instr_vars acc instr =
     let def = match instr with
@@ -128,6 +99,8 @@ let get_vars (args : Bril.dest list) (cfg : Bril.cfg) : Bril.dest list =
     List.fold b ~init:acc ~f:get_instr_vars in
   List.fold cfg.blocks ~init:args ~f:get_block_vars
 
+(** [defs_var v instrs] is [true] iff. the intructions [instrs] write to the
+    variable [var]. *)
 let defs_var (v : string) (instrs : Bril.instr list) : bool =
   let f instr =
     match instr with
@@ -138,52 +111,48 @@ let defs_var (v : string) (instrs : Bril.instr list) : bool =
     | _ -> false in
   List.exists instrs ~f
 
+(** [get_var_defs v args cfg] is a list of blocks in the [cfg] which write to
+    the variable [v]. Each of the [args] is treated as having been written to
+    in the entry block. *)
 let get_var_defs (v : string) args (cfg : Bril.cfg) : string list =
   let nodes = List.map cfg.blocks ~f:fst in
   let entry = List.hd_exn nodes in
-  (* print_endline ("\tentry: " ^ entry); *)
   let is_arg = List.exists args ~f:(fun (x,_) -> equal x v) in
-  List.filter nodes
-    ~f:(fun n -> (List.Assoc.find_exn cfg.blocks n ~equal |> defs_var v) || (is_arg && equal n entry))
+  let f n =
+    let is = List.Assoc.find_exn cfg.blocks n ~equal in
+    (defs_var v is) || (is_arg && equal n entry) in
+  List.filter nodes ~f
 
+(** [insert_phis args cfg doms] is a partially transformed version of [cfg] with
+    phi-nodes inserted for SSA in the proper locations, but without renamed
+    variables or proper phi node reads. *)
 let insert_phis (args : Bril.dest list) (cfg : Bril.cfg) doms : Bril.cfg =
   let vars = get_vars args cfg in
-  (* let cfg = Bril.to_blocks_and_cfg instrs in *)
-  (* let doms = get_dominance_map cfg in *)
-  (* let _x = dominance_tree cfg doms in *)
-  let fronts = get_frontiers cfg doms in
+  let fronts = get_frontiers cfg in
   List.fold vars ~init:cfg ~f:(fun cfg (var, t) ->
-    (* print_endline var; *)
     let defs = get_var_defs var args cfg in
     List.fold defs ~init:cfg ~f:(fun cfg def ->
-      (* print_endline ("\t" ^ def); *)
       let deffronts = List.Assoc.find_exn fronts def ~equal in
       List.fold deffronts ~init:cfg ~f:(fun cfg front ->
-        (* print_endline ("\t\t" ^ front); *)
         let blck = List.Assoc.find_exn cfg.blocks front ~equal in
         let blck' = match blck with
           | Label _ :: Phi ((dest, t), _, _, _) :: _ when (equal dest var) -> blck
           | Label l :: tl -> Label l :: Phi ((var, t), [], [], (var, t)) :: tl
           | _ -> Phi ((var, t), [], [], (var, t)) :: blck in
         { cfg with blocks = List.Assoc.add cfg.blocks front blck' ~equal })))
-  (* List.fold cfg'.blocks ~init:[] ~f:(fun acc (_, is) -> is @ acc) *)
 
+(** [block_defs_var cfg block var] is [true] iff. the [block] writes to the 
+    variable [var] according to the [cfg]. *)
 let block_defs_var (cfg : Bril.cfg) (block : string) (var : string) : bool =
   defs_var var (List.Assoc.find_exn cfg.blocks block ~equal)
 
+(** [rename_vars args cfg doms entry] is the SSA version of [cfg].
+    Precondition: the [cfg] was output from the [insert_phis] function. *)
 let rename_vars (args : Bril.dest list) (cfg : Bril.cfg) doms entry : Bril.cfg =
-  (* print_endline "renaming vars"; *)
-  (* let cfg = Bril.to_blocks_and_cfg instrs in *)
-  (* print_endline "got cfg"; *)
-  (* let doms = get_dominance_map cfg in *)
-  (* print_endline "got dominance map"; *)
   let nodes = List.map cfg.blocks ~f:fst in
   let vars = get_vars args cfg |> List.map ~f:fst in
-  (* print_endline "got vars"; *)
   let stacks = List.map vars ~f:(fun v -> v, [v]) in
   let counters = List.map vars ~f:(fun v -> v, let box = ref (-1) in fun () -> box := !box + 1; !box) in
-  (* let entry = List.hd_exn nodes in *)
-  (* print_endline "got entry"; *)
   let rename_instr stack i =
     let open Bril in
     match i with
@@ -221,12 +190,8 @@ let rename_vars (args : Bril.dest list) (cfg : Bril.cfg) doms entry : Bril.cfg =
         ~f:(fun a -> List.Assoc.find_exn stack a ~equal |> List.hd_exn))
     | Nop -> stack, Nop
     | Phi ((v, t), args, ls, (v', t')) ->
-      (* print_endline "renaming phi"; *)
-      (* print_endline v; *)
       let fresh = v ^ "." ^ (List.Assoc.find_exn counters v ~equal () |> string_of_int) in
-      (* print_endline fresh; *)
       List.Assoc.add stack v ~equal (fresh :: List.Assoc.find_exn stack v ~equal),
-      (* (print_endline ("adding phi node with dest " ^ fresh); *)
       Phi ((fresh, t), args, ls, (v', t')) in
   let rename_phi stacks block (cfg : Bril.cfg) succ =
     let is = List.Assoc.find_exn cfg.blocks succ ~equal in
@@ -241,26 +206,18 @@ let rename_vars (args : Bril.dest list) (cfg : Bril.cfg) doms entry : Bril.cfg =
     let is = List.map is ~f in
     { cfg with blocks = List.Assoc.add cfg.blocks succ is ~equal } in
   let rec rename_block block (cfg : Bril.cfg) stacks =
-    (* print_endline ("renaming block: " ^ block); *)
     let is = List.Assoc.find_exn cfg.blocks block ~equal in
-    (* print_endline "got is"; *)
-    (* let () = failwith "end" in *)
     let (stacks', is) = List.fold_map is ~init:stacks ~f:rename_instr in
     let succs = List.Assoc.find_exn cfg.edges block ~equal in
-    (* print_endline "got succs"; *)
     let cfg = { cfg with blocks = List.Assoc.add cfg.blocks block is ~equal } in
-    (* print_endline "added is to cfg"; *)
-    (* let () = failwith "end" in *)
     let cfg = List.fold succs ~init:cfg ~f:(rename_phi stacks' block) in
-    (* print_endline "renamed phis"; *)
     let imms = List.filter nodes ~f:(fun b -> is_immediate doms block b) in
-    (* print_endline ("immediately dominated are: "); *)
-    (* List.iter imms ~f:(fun imm -> print_endline ("\t" ^ imm)); *)
-    (* let () = failwith "end" in *)
     List.fold imms ~init:cfg ~f:(fun acc imm -> rename_block imm acc stacks') in
-  (* print_endline ("entry: " ^ entry); *)
   rename_block entry cfg stacks
 
+(** [remove_uninit_phis args instr] removes phi-node reads from [instr] if they
+    read from a block that does no initialize the variable in question.
+    Instructions that are not phi-nodes are left untouched. *)
 let remove_uninit_phis args = function
   | Bril.Phi (dest, a, l, dest') ->
     let zipped = List.zip_exn a l in
@@ -269,10 +226,12 @@ let remove_uninit_phis args = function
     Bril.Phi (dest, a, l, dest')
   | i -> i
 
-let is_single_phi = function
-  | Bril.Phi (dest, [ a ], [ l ], dest') -> true
-  | _ -> false
-
+(** [ssa_of_instrs args instrs] is a modified version of [intrs] in SSA form.
+    The transformation inserts an entry block at the head of the CFG in case
+    there is a back-edge entering the original entry block, inserts empty
+    phi-nodes, and renames variables to fill in the phi-node reads. As a
+    post-processing pass, any phi-node reads from blocks that do not initialize
+    the variable in question are removed. *)
 let ssa_of_instrs (args : Bril.dest list) (instrs : Bril.instr list) : Bril.instr list =
   let cfg = Bril.to_blocks_and_cfg instrs in
   let order = cfg.blocks |> List.map ~f:fst in
@@ -287,16 +246,11 @@ let ssa_of_instrs (args : Bril.dest list) (instrs : Bril.instr list) : Bril.inst
       "entry1"
     else cfg, order, entry in
   let doms = get_dominance_map cfg in
-  (* print_endline "loop doms are"; *)
-  (* List.iter (List.Assoc.find_exn doms "loop" ~equal) ~f:print_endline; *)
-  (* let () = failwith "end" in *)
   let cfg = insert_phis args cfg doms in
-  (* let () = failwith "end" in *)
   let cfg = rename_vars args cfg doms entry in
   let blocks = List.map order ~f:(List.Assoc.find_exn cfg.blocks ~equal) in
   List.fold ~init:[] ~f:(@) blocks
   |> List.map ~f:(remove_uninit_phis (List.map args ~f:fst))
-  |> List.filter ~f:(fun x -> not (is_single_phi x))
 
 let ssa_of_func (func : Bril.func) : Bril.func =
   { func with instrs = ssa_of_instrs func.args func.instrs }

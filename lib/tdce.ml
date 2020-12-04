@@ -1,4 +1,5 @@
 open Core
+open Util
 
 let rec elim_dead_block (instrs : Bril.instr list) : Bril.instr list =
   let equal = String.equal in
@@ -32,7 +33,11 @@ let rec elim_dead_block (instrs : Bril.instr list) : Bril.instr list =
     | Ret None -> dels, defs
     | Print args -> dels, List.fold args ~init:defs ~f:(List.Assoc.remove ~equal)
     | Nop -> dels, defs
-    | Phi _ -> failwith "phi node tdce unsupported" in
+    | Phi ((dest, _), args, _, _) ->
+      let defs = List.fold args ~init:defs ~f:(List.Assoc.remove ~equal) in
+      (if List.Assoc.mem defs dest ~equal
+      then List.Assoc.find_exn defs dest ~equal :: dels else dels),
+      List.Assoc.add defs dest i ~equal in
   let unused = List.foldi ~f ~init:([], []) instrs |> fst in
   let instrs' = List.filteri instrs
     ~f:(fun i _ -> List.mem unused i ~equal:Int.equal |> not) in
@@ -43,7 +48,7 @@ let elim_dead_local (func : Bril.func) : Bril.func =
   let Bril.{ blocks; _ } = Bril.to_blocks_and_cfg func.instrs in
   { func with instrs = List.map blocks ~f:snd
     |> List.map ~f:elim_dead_block
-    |> List.fold ~init:[] ~f:(fun acc is -> is @ acc) }
+    |> List.fold ~init:[] ~f:(@) }
 
 let rec elim_dead_global (func : Bril.func) : Bril.func =
   let equal = String.equal in
@@ -76,7 +81,11 @@ let rec elim_dead_global (func : Bril.func) : Bril.func =
     | Ret None -> defs, uses
     | Print args -> defs, args @ uses
     | Nop -> defs, uses
-    | Phi _ -> failwith "phi node tdce unsupported" in
+    | Phi ((dest, _), args, _, _) ->
+      let uses = args @ uses in
+      (if not (List.mem uses dest ~equal)
+      then List.Assoc.add defs dest i ~equal
+      else defs), uses in
   let defs, uses = List.foldi ~f ~init:([], []) func.instrs in
   let unused = 
     List.filter defs ~f:(fun (v, _) -> List.mem uses v ~equal |> not)
@@ -87,7 +96,48 @@ let rec elim_dead_global (func : Bril.func) : Bril.func =
   then { func with instrs = instrs' }
   else elim_dead_global { func with instrs = instrs' }
 
+let elim_unreachable (func : Bril.func) : Bril.func =
+  let instrs = func.instrs in
+  let cfg = Bril.to_blocks_and_cfg instrs in
+  let entry = List.hd_exn cfg.blocks |> fst in
+  let f (b, _) =
+    let preds = get_preds b cfg in
+    not (List.is_empty preds) || (equal entry b) in
+  { func with instrs =
+      cfg.blocks
+      |> List.filter ~f
+      |> List.map ~f:snd
+      |> List.fold ~init:[] ~f:(@) }
+
+let elim_trivial_jumps (func : Bril.func) : Bril.func =
+  let g l = function
+    | Bril.Label l' -> not (equal l l')
+    | _ -> true in
+  let f i instr =
+    match instr with
+    | Bril.Jmp l ->
+      List.nth func.instrs (i+1)
+      |> Option.value_map ~default:true ~f:(g l)
+    | _ -> true in
+  { func with instrs = List.filteri func.instrs ~f }
+
+let elim_empty (func : Bril.func): Bril.func =
+  let instrs = func.instrs in
+  let cfg = Bril.to_blocks_and_cfg instrs in
+  let f (_, is) =
+    match is with
+    | [ Bril.Label _ ] -> false
+    | _ -> true in
+  { func with instrs =
+      cfg.blocks
+      |> List.filter ~f
+      |> List.map ~f:snd
+      |> List.fold ~init:[] ~f:(@) }
+
 let elim_dead (bril : Bril.t) : Bril.t =
   { funcs = List.map bril.funcs ~f:elim_dead_global
     |> List.map ~f:elim_dead_local
+    |> List.map ~f:elim_unreachable
+    |> List.map ~f:elim_trivial_jumps
+    |> List.map ~f:elim_empty
   }

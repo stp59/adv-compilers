@@ -20,6 +20,8 @@ local value numbering optimizations followed by tdce, and output modified json s
 * `--cp`: input text (json rep of bril), parse into bril AST, run the constant
 propagation dataflow analysis optimization with tdce as a subroutine, and output
 the modified json string
+* `--tossa`: input text (json rep of bril), parse into bril AST, run the conversion
+to SSA form with tdce as a post-processing step, and output the modified json string
 
 # contrived.ml
 
@@ -31,8 +33,10 @@ a small subset of the benchmark from the bril repository.
 # tdce.ml & lvn.ml
 
 tdce.ml implements trivial dead code elimination as presented in Lesson 3. It
-removes definitions that are unused globally and iterates to convergence. It also
+removes definitions that are unused globally, iterating to convergence, and
 eliminates definitions that are killed locally (i.e. within a single basic block).
+It also removes unreachable basic blocks in the CFG, jumps pointing the the next
+line of code, and empty basic blocks (i.e. labels followed by another label).
 I have run this on the tdce test suite from the bril repository and found that it
 meets the suite's standard for code eliminations. I have also run it on the
 benchmark suite and found that it behaves the same as `--nop` in terms of
@@ -40,7 +44,8 @@ input/expected output. The total dynamic instruction count with tdce is consiste
 less than or equal to the same figures with `--nop`.
 
 lvn.ml implements local value numbering as presented in Lesson 3. That is, it
-performs a semantics-blind version of common sub-expression elimination and copy propogation within single basic blocks. Running the same experiments as with tdce
+performs a semantics-blind version of common sub-expression elimination and copy
+propogation within single basic blocks. Running the same experiments as with tdce
 revealed similar results -- lvn has the same correctness results as `--nop` on the
 benchmark suite with a uniform decrease in dynamic instructions executed. It also
 behaves as expected according to the lvn test suite on the bril repository with a
@@ -56,4 +61,17 @@ predictably on the example program test-cp/fold.bril.
 
 # ssa.ml
 
-An unfinished implementation of SSA. No way to test it properly yet.
+Implements conversion from bril into SSA-form with. It behaves correctly on the ssa
+test suite from the bril repository, mod a few details below. Includes computations
+concerning dominators and domination frontiers, which are used in the implmentation of
+the SSA conversion. There is also a stub for conversion from SSA, which is currently
+unimplemented (TODO).
+
+The following are the differences between my conversion to SSA and the expected
+output according to the ssa test suite on the bril repository:
+
+* naming convention details
+* insertion of return statements at the end of terminal blocks in the CFG
+* insertion of trivial jumps between blocks in the CFG which are adjacent in the
+  source code
+* ordering of phi-node reads

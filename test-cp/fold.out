@@ -1,14 +1,6 @@
 @main {
-  x: int = const 1;
-  jmp .if;
-.if:
-  y: int = const 6;
-  jmp .end;
-.else:
-  y: int = call @f x;
-  jmp .end;
 .end:
-  z: int = mul y y;
+  z: int = const 36;
   print z;
 }
 @f(n: int): int {

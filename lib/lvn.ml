@@ -178,7 +178,7 @@ let num_val_block (args : Bril.dest list) (block : Bril.instr list) : Bril.instr
           |> Option.value ~default:(List.nth_exn args i)) in
       tbl, var_num, Print args' :: acc
     | Nop -> tbl, var_num, Nop :: acc
-    | Phi _ -> failwith "phi node lvn not supported" in
+    | Phi _ -> tbl, var_num, instr :: acc in
   let tbl_init = List.mapi args ~f:(fun i dest -> (Arg i ,dest)) in
   let var_num_init = List.mapi args ~f:(fun i dest -> (fst dest, i)) in
   List.foldi block ~init:(tbl_init, var_num_init, []) ~f |> Tuple.T3.get3 |> List.rev
@@ -187,7 +187,7 @@ let num_val_func (func : Bril.func) : Bril.func =
   let Bril.{ blocks; _ } = Bril.to_blocks_and_cfg func.instrs in
   { func with instrs = List.map blocks ~f:snd
     |> List.map ~f:(num_val_block func.args)
-    |> List.fold ~init:[] ~f:(fun acc is -> is @ acc) }
+    |> List.fold ~init:[] ~f:(@) }
 
 let num_val (bril : Bril.t) : Bril.t =
   { funcs = List.map ~f:num_val_func bril.funcs }

@@ -7,7 +7,6 @@
   jmp .exit;
 .right:
   a.3: int = mul a.0 a.0;
-  jmp .exit;
 .exit:
   a.1: int = phi a.3 a.2 .right .left;
   print a.1;

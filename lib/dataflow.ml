@@ -218,6 +218,7 @@ let cp_func (func : Bril.func) : Bril.func =
     |> Option.value_map ~default:acc ~f:(fun b' -> (l, b') :: acc) in
   let instrs' = List.fold blocks ~init:[] ~f
     |> List.map ~f:snd
+    |> List.rev
     |> List.fold ~init:[] ~f:(@) in
   { func with instrs = instrs'; }
 
