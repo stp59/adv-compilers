@@ -256,7 +256,39 @@ let ssa_of_func (func : Bril.func) : Bril.func =
   { func with instrs = ssa_of_instrs func.args func.instrs }
 
 let ssa_of_bril (bril : Bril.t) : Bril.t =
-  { funcs = List.map (add_labels bril).funcs ~f:ssa_of_func }
+  { funcs = List.map (add_labels bril).funcs ~f:ssa_of_func
+    |> List.map ~f:Tdce.elim_dead_local
+    |> List.map ~f:Tdce.elim_dead_global
+    |> List.map ~f:Tdce.elim_trivial_jumps }
+
+let not_phi (instr : Bril.instr) : bool =
+  match instr with
+  | Phi _ -> false
+  | _ -> true
+
+let instrs_of_ssa (instrs : Bril.instr list) : Bril.instr list =
+  let cfg = Bril.to_blocks_and_cfg instrs in
+  let order = List.map cfg.blocks ~f:fst in
+  let cfg = List.fold cfg.blocks ~init:cfg ~f:(fun cfg (b, is) ->
+    List.fold is ~init:cfg ~f:(fun cfg i ->
+      match i with
+      | Phi(dest, args, ls, dest') ->
+        let zipped = List.zip_exn ls args in
+        List.fold zipped ~init:cfg ~f:(fun cfg (label, arg) ->
+          let pred_is = List.Assoc.find_exn cfg.blocks label ~equal in
+          let id_instr = Bril.Unary (dest, Bril.Id, arg) in
+          let updated = match List.rev pred_is with 
+            | Bril.Jmp x :: tl -> (Bril.Jmp x :: id_instr :: tl) |> List.rev
+            | Bril.Br (a,b,c) :: tl -> (Bril.Br(a,b,c) :: id_instr :: tl) |> List.rev
+            | tl -> (id_instr :: tl) |> List.rev in
+          { cfg with blocks =
+            List.Assoc.add cfg.blocks label updated ~equal } )
+      | _ -> cfg )) in
+  List.fold order ~init:[] ~f:(fun acc b -> acc @ List.Assoc.find_exn cfg.blocks b ~equal)
+  |> List.filter ~f:not_phi
+
+let func_of_ssa (func : Bril.func) : Bril.func =
+  { func with instrs = instrs_of_ssa func.instrs }
 
 let bril_of_ssa (bril : Bril.t) : Bril.t =
-  bril (* TODO *)
+  { funcs = List.map (add_labels bril).funcs ~f:func_of_ssa }

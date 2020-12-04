@@ -55,7 +55,6 @@ let do_to_ssa () =
   In_channel.input_all In_channel.stdin
   |> Bril.from_string
   |> Ssa.ssa_of_bril
-  |> Tdce.elim_dead
   |> Bril.to_string
   |> Out_channel.output_string Out_channel.stdout
 
@@ -63,6 +62,7 @@ let do_of_ssa () =
   In_channel.input_all In_channel.stdin
   |> Bril.from_string
   |> Ssa.bril_of_ssa
+  (* |> Dataflow.cp *)
   |> Bril.to_string
   |> Out_channel.output_string Out_channel.stdout
 

@@ -27,5 +27,8 @@ test-cp: build
 test-to-ssa: build
 	@turnt test-tossa/*.bril
 
+test-of-ssa: build
+	@turnt test-ofssa/*.bril
+
 test: build
 	@turnt benchmarks/*.bril
