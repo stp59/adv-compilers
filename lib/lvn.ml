@@ -93,7 +93,8 @@ let num_val_block (args : Bril.dest list) (block : Bril.instr list) : Bril.instr
       then
         let (n, d) = List.findi tbl ~f:(fun i e -> vals_equal (fst e) value)
           |> Option.value ~default:(0, (Const (Int 0), ("", Bril.IntType))) in
-        tbl, List.Assoc.add var_num (dest |> fst) n ~equal:String.equal, acc
+        tbl, List.Assoc.add var_num (dest |> fst) n ~equal:String.equal,
+        Bril.Unary (dest, Bril.Id, snd d |> fst) :: acc
       else
         let i0 = List.Assoc.find var_num arg0 ~equal:String.equal in
         let i1 = List.Assoc.find var_num arg1 ~equal:String.equal in
@@ -118,7 +119,8 @@ let num_val_block (args : Bril.dest list) (block : Bril.instr list) : Bril.instr
       then
         let (n, d) = List.findi tbl ~f:(fun i e -> vals_equal (fst e) value)
           |> Option.value ~default:(0, (Const (Int 0), ("", Bril.IntType))) in
-        tbl, List.Assoc.add var_num (dest |> fst) n ~equal:String.equal, acc
+        tbl, List.Assoc.add var_num (dest |> fst) n ~equal:String.equal,
+        Bril.Unary (dest, Bril.Id, snd d |> fst) :: acc
       else
         let i0 = List.Assoc.find var_num arg ~equal:String.equal in
         let i0, tbl = match i0 with
@@ -144,7 +146,8 @@ let num_val_block (args : Bril.dest list) (block : Bril.instr list) : Bril.instr
       then
         let (n, d) = List.findi tbl ~f:(fun i e -> vals_equal (fst e) value)
           |> Option.value ~default:(0, (Const (Int 0), ("", Bril.IntType))) in
-        tbl, List.Assoc.add var_num (dest |> fst) n ~equal:String.equal, acc
+        tbl, List.Assoc.add var_num (dest |> fst) n ~equal:String.equal,
+        Bril.Unary (dest, Bril.Id, snd d|> fst) :: acc
       else
         let is = List.map args
           ~f:(fun arg -> List.Assoc.find var_num arg ~equal:String.equal) in
@@ -178,7 +181,7 @@ let num_val_block (args : Bril.dest list) (block : Bril.instr list) : Bril.instr
           |> Option.value ~default:(List.nth_exn args i)) in
       tbl, var_num, Print args' :: acc
     | Nop -> tbl, var_num, Nop :: acc
-    | Phi _ -> tbl, var_num, instr :: acc in
+    | Phi _ -> failwith "phi nodes unsupported for lvn" in
   let tbl_init = List.mapi args ~f:(fun i dest -> (Arg i ,dest)) in
   let var_num_init = List.mapi args ~f:(fun i dest -> (fst dest, i)) in
   List.foldi block ~init:(tbl_init, var_num_init, []) ~f |> Tuple.T3.get3 |> List.rev

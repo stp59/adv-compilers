@@ -1,4 +1,5 @@
 @main {
+.if:
 .end:
   z: int = const 36;
   print z;

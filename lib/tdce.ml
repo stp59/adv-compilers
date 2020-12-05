@@ -121,23 +121,9 @@ let elim_trivial_jumps (func : Bril.func) : Bril.func =
     | _ -> true in
   { func with instrs = List.filteri func.instrs ~f }
 
-let elim_empty (func : Bril.func): Bril.func =
-  let instrs = func.instrs in
-  let cfg = Bril.to_blocks_and_cfg instrs in
-  let f (_, is) =
-    match is with
-    | [ Bril.Label _ ] -> false
-    | _ -> true in
-  { func with instrs =
-      cfg.blocks
-      |> List.filter ~f
-      |> List.map ~f:snd
-      |> List.fold ~init:[] ~f:(@) }
-
 let elim_dead (bril : Bril.t) : Bril.t =
   { funcs = List.map bril.funcs ~f:elim_dead_global
     |> List.map ~f:elim_dead_local
     |> List.map ~f:elim_unreachable
     |> List.map ~f:elim_trivial_jumps
-    |> List.map ~f:elim_empty
   }
