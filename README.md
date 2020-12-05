@@ -20,8 +20,11 @@ local value numbering optimizations followed by tdce, and output modified json s
 * `--cp`: input text (json rep of bril), parse into bril AST, run the constant
 propagation dataflow analysis optimization with tdce as a subroutine, and output
 the modified json string
-* `--tossa`: input text (json rep of bril), parse into bril AST, run the conversion
-to SSA form with tdce as a post-processing step, and output the modified json string
+* `--tossa`: input text (json rep of bril), parse into bril AST, run the conversion to SSA form with tdce as a post-processing step,
+and output the modified json string
+* `--ofssa`: input text (json rep of bril), parse into bril AST,
+run the conversion from SSA form to regular bril, and output the
+final modified json string
 
 # contrived.ml
 
@@ -64,8 +67,7 @@ predictably on the example program test-cp/fold.bril.
 Implements conversion from bril into SSA-form with. It behaves correctly on the ssa
 test suite from the bril repository, mod a few details below. Includes computations
 concerning dominators and domination frontiers, which are used in the implmentation of
-the SSA conversion. There is also a stub for conversion from SSA, which is currently
-unimplemented (TODO).
+the SSA conversion. Also implements the conversion back from SSA form. I have found that running the conversion to SSA and back results in a program that has the same behavior as the original program by running this experiment on the SSA test suite and on the benchmark suite.
 
 The following are the differences between my conversion to SSA and the expected
 output according to the ssa test suite on the bril repository:

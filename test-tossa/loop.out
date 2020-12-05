@@ -3,9 +3,9 @@
   i.0: int = const 1;
 .loop:
   i.1: int = phi i.2 i.0 .body .entry;
-  max.1: int = const 10;
-  cond.1: bool = lt i.1 max.1;
-  br cond.1 .body .exit;
+  max.0: int = const 10;
+  cond.0: bool = lt i.1 max.0;
+  br cond.0 .body .exit;
 .body:
   i.2: int = add i.1 i.1;
   jmp .loop;

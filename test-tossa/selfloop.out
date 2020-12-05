@@ -6,9 +6,9 @@
 .loop:
   x.1: int = phi x.2 x.0 .br .entry;
   x.2: int = sub x.1 one.0;
-  done.1: bool = eq x.2 zero.0;
+  done.0: bool = eq x.2 zero.0;
 .br:
-  br done.1 .exit .loop;
+  br done.0 .exit .loop;
 .exit:
   print x.2;
   ret;

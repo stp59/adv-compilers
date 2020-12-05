@@ -53,12 +53,14 @@ let is_immediate (doms : dominance_map) (a : string) (b : string) : bool =
 (** [is_frontier cfg doms a b] is [true] iff. [b] is in the dominance frontier
     of [a] in the [cfg]. *)
 let is_frontier (cfg : Bril.cfg) (a : string) (b : string) : bool =
+  (* print_endline ("checking if " ^ b ^ " is in the frontier of " ^ a); *)
   let doms = get_dominance_map cfg in
   let bpreds = get_preds b cfg in
   let bdoms = List.Assoc.find_exn doms b ~equal in
   let adomsb = mem a bdoms && not (equal a b) in
   let adoms_predb =
     List.exists bpreds ~f:(fun n -> List.Assoc.find_exn doms n ~equal |> mem a) in
+  (* let () = if (not adomsb) && adoms_predb then print_endline "it is" else print_endline "it is not" in *)
   (not adomsb) && adoms_predb
 
 (** [get_frontiers cfg] is a map from blocks [b] to lists of blocks which are in
@@ -131,15 +133,22 @@ let insert_phis (args : Bril.dest list) (cfg : Bril.cfg) doms : Bril.cfg =
   let fronts = get_frontiers cfg in
   List.fold vars ~init:cfg ~f:(fun cfg (var, t) ->
     let defs = get_var_defs var args cfg in
-    List.fold defs ~init:cfg ~f:(fun cfg def ->
-      let deffronts = List.Assoc.find_exn fronts def ~equal in
-      List.fold deffronts ~init:cfg ~f:(fun cfg front ->
-        let blck = List.Assoc.find_exn cfg.blocks front ~equal in
-        let blck' = match blck with
-          | Label _ :: Phi ((dest, t), _, _, _) :: _ when (equal dest var) -> blck
-          | Label l :: tl -> Label l :: Phi ((var, t), [], [], (var, t)) :: tl
-          | _ -> Phi ((var, t), [], [], (var, t)) :: blck in
-        { cfg with blocks = List.Assoc.add cfg.blocks front blck' ~equal })))
+    let rec f acc cfg defs =
+      let defs', cfg = List.fold acc ~init:([], cfg) ~f:(fun (defs', cfg) def ->
+        let deffronts = List.Assoc.find_exn fronts def ~equal in
+        List.fold deffronts ~init:([], cfg) ~f:(fun (defs', cfg) front ->
+          let blck = List.Assoc.find_exn Bril.(cfg.blocks) front ~equal in
+          let blck' = match blck with
+            | Label _ :: Phi ((dest, t), _, _, _) :: _ when (equal dest var) -> blck
+            | Label l :: tl -> Label l :: Phi ((var, t), [], [], (var, t)) :: tl
+            | _ -> Phi ((var, t), [], [], (var, t)) :: blck in
+          let changed = List.length defs > 1 in
+          let blck' = if changed then blck' else blck in
+          let cfg = { cfg with blocks = List.Assoc.add cfg.blocks front blck' ~equal } in
+          let defs' = if not (mem front defs) && changed then front :: defs' else defs' in
+          defs', cfg)) in
+      if List.is_empty defs' then cfg else f defs' cfg (defs @ defs') in
+    f defs cfg defs)
 
 (** [block_defs_var cfg block var] is [true] iff. the [block] writes to the 
     variable [var] according to the [cfg]. *)
@@ -226,6 +235,10 @@ let remove_uninit_phis args = function
     Bril.Phi (dest, a, l, dest')
   | i -> i
 
+let not_single_phi = function
+  | Bril.Phi (dest, [a], [l], dest') -> false
+  | _ -> true
+
 (** [ssa_of_instrs args instrs] is a modified version of [intrs] in SSA form.
     The transformation inserts an entry block at the head of the CFG in case
     there is a back-edge entering the original entry block, inserts empty
@@ -248,9 +261,10 @@ let ssa_of_instrs (args : Bril.dest list) (instrs : Bril.instr list) : Bril.inst
   let doms = get_dominance_map cfg in
   let cfg = insert_phis args cfg doms in
   let cfg = rename_vars args cfg doms entry in
+  let cfg = { cfg with blocks = List.map cfg.blocks
+    ~f:(fun (b, is) -> b, List.map is ~f:(remove_uninit_phis (List.map args ~f:fst))) } in
   let blocks = List.map order ~f:(List.Assoc.find_exn cfg.blocks ~equal) in
   List.fold ~init:[] ~f:(@) blocks
-  |> List.map ~f:(remove_uninit_phis (List.map args ~f:fst))
 
 let ssa_of_func (func : Bril.func) : Bril.func =
   { func with instrs = ssa_of_instrs func.args func.instrs }
@@ -259,7 +273,8 @@ let ssa_of_bril (bril : Bril.t) : Bril.t =
   { funcs = List.map (add_labels bril).funcs ~f:ssa_of_func
     |> List.map ~f:Tdce.elim_dead_local
     |> List.map ~f:Tdce.elim_dead_global
-    |> List.map ~f:Tdce.elim_trivial_jumps }
+    |> List.map ~f:Tdce.elim_trivial_jumps
+    }
 
 let not_phi (instr : Bril.instr) : bool =
   match instr with
