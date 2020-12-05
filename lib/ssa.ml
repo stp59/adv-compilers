@@ -270,11 +270,7 @@ let ssa_of_func (func : Bril.func) : Bril.func =
   { func with instrs = ssa_of_instrs func.args func.instrs }
 
 let ssa_of_bril (bril : Bril.t) : Bril.t =
-  { funcs = List.map (add_labels bril).funcs ~f:ssa_of_func
-    |> List.map ~f:Tdce.elim_dead_local
-    |> List.map ~f:Tdce.elim_dead_global
-    |> List.map ~f:Tdce.elim_trivial_jumps
-    }
+  { funcs = List.map (add_labels bril).funcs ~f:ssa_of_func }
 
 let not_phi (instr : Bril.instr) : bool =
   match instr with
