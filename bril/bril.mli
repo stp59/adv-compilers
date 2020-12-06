@@ -75,6 +75,8 @@ type cfg = {
   edges : (string * string list) list;
 } [@@deriving sexp_of]
 
+val update_edges : (string * instr list) list -> (string * string list) list
+
 val to_blocks_and_cfg : instr list -> cfg
 
 val from_file : string -> t

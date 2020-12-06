@@ -46,7 +46,7 @@ let do_cp () =
   In_channel.input_all In_channel.stdin
   |> Bril.from_string
   |> Dataflow.cp
-  (* |> Tdce.elim_dead *)
+  |> Tdce.elim_dead
   |> Bril.to_string
   |> Out_channel.output_string Out_channel.stdout
 

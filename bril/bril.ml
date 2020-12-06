@@ -107,6 +107,18 @@ type cfg = {
   edges : (string * string list) list;
 } [@@deriving sexp_of]
 
+let update_edges blocks =
+  List.mapi blocks ~f:(fun i (name, block) ->
+    let next = match List.last_exn block with
+      | Jmp label -> [ label ]
+      | Br (_, l1, l2) -> [ l1; l2 ]
+      | Ret _ -> []
+      | _ -> begin match List.nth blocks (i + 1) with
+        | None -> []
+        | Some (label, _) -> [ label ] end in
+    (name, next))
+
+
 let to_blocks_and_cfg instrs =
   let block_name i = sprintf "b%d" (i + 1) in
   let (name, block, blocks) =
@@ -127,21 +139,7 @@ let to_blocks_and_cfg instrs =
     |> List.filter ~f:(fun (_, block) -> not (List.is_empty block))
   in
   let blocks = List.rev blocks in
-  let edges =
-    List.mapi blocks ~f:(fun i (name, block) ->
-        let next =
-          match List.last_exn block with
-          | Jmp label -> [ label ]
-          | Br (_, l1, l2) -> [ l1; l2 ]
-          | Ret _ -> []
-          | _ -> (
-              match List.nth blocks (i + 1) with
-              | None -> []
-              | Some (label, _) -> [ label ])
-        in
-        (name, next))
-  in
-  (* print_endline "got blocks and edges"; *)
+  let edges = update_edges blocks in
   { blocks; edges; }
 
 let from_json json =

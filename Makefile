@@ -16,13 +16,13 @@ test-contrived: build
 	@turnt test-contrived/*.bril
 
 test-tdce: build
-	@turnt test-tdce/*.bril
+	@turnt --diff test-tdce/*.bril
 
 test-lvn: build
 	@turnt test-lvn/*.bril
 
 test-cp: build
-	@turnt test-cp/*.bril
+	@turnt --diff test-cp/*.bril
 
 test-to-ssa: build
 	@turnt test-tossa/*.bril

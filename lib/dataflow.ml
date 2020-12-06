@@ -1,37 +1,41 @@
 open Core
+open Util
 
-type var_val =
+type cp_var_val =
   | Uninit
   | Const of Bril.const
   | Conflict
 
-type block_val =
+type cp_block_val =
   | Reachable
   | Unreachable
 
 type cp_val = {
-  bv : block_val;
-  vvs : (string * var_val) list;
+  bv : cp_block_val;
+  vvs : (string * cp_var_val) list;
 }
 
-type df_val = {
-  inv : cp_val;
-  outv : cp_val;
+type 'v df_val = {
+  inv : 'v;
+  outv : 'v;
 }
 
-let init_cp : cp_val = {
+let pre_cp_init : cp_val = {
   bv = Reachable;
   vvs = [];
 }
 
-let init : df_val = {
-  inv = init_cp;
-  outv = init_cp;
+let cp_init : cp_val df_val = {
+  inv = pre_cp_init;
+  outv = pre_cp_init;
 }
 
-let empty l = List.length l |> Int.equal 0
-
-let mem l v = List.exists l ~f:(fun x -> String.equal v x)
+let cp_init (func : Bril.func) (cfg : Bril.cfg) : (string * cp_val df_val) list =
+  let args = List.map func.args ~f:fst in
+  let vars = get_vars func.args cfg |> List.map ~f:fst in
+  let init = List.map vars ~f:(fun v -> v, if mem v args then Conflict else Uninit) in
+  let init = { bv = Reachable; vvs = init } in
+  List.map cfg.blocks ~f:(fun (b,_) -> b, { inv = init; outv = init; })
 
 let merge_block v1 v2 =
   match v1, v2 with
@@ -40,12 +44,13 @@ let merge_block v1 v2 =
 
 let merge_var v1 v2 =
   match v1, v2 with
-  | Uninit, v | v, Uninit -> v1
+  | Uninit, v | v, Uninit -> v
   | Conflict, _ | _, Conflict -> Conflict
   | Const c1, Const c2 ->
-    if Bril.equal_const c1 c2 then Const c1 else Conflict
+    if Bril.equal_const c1 c2 then Const c1 else (
+      Conflict)
 
-let merge (v1 : cp_val) (v2 : cp_val) : cp_val = {
+let cp_merge (v1 : cp_val) (v2 : cp_val) : cp_val = {
   bv = merge_block v1.bv v2.bv;
   vvs = List.fold v2.vvs ~init:v1.vvs
     ~f:(fun acc (n, v) -> List.Assoc.add acc n
@@ -53,7 +58,7 @@ let merge (v1 : cp_val) (v2 : cp_val) : cp_val = {
         |> Option.value_map ~default:v ~f:Fn.id) v) ~equal:String.equal);
 }
 
-let mergel = List.fold ~init:init_cp ~f:merge
+let cp_mergel = List.fold ~init:pre_cp_init ~f:(cp_merge)
 
 let symb_binop op v1 v2 =
   match v1, v2 with
@@ -97,7 +102,7 @@ let symb_unop op v =
       | Bril.Id -> Const c
       | _ -> Conflict end
 
-let transfer (is : Bril.instr list) (inv : cp_val) : Bril.instr list * cp_val =
+let cp_transfer (is : Bril.instr list) (inv : cp_val) : Bril.instr list * cp_val =
   let equal = String.equal in
   let f (acc, v) i =
     match i with
@@ -168,16 +173,16 @@ let vals_equal (v1 : cp_val) (v2 : cp_val) : bool =
         |> Option.value_map ~default:(is_uninit v) ~f:(var_vals_equal v)) in
   bveq && vvseq
 
-let cp_worklist (blocks : (string * Bril.instr list) list)
-    (edges : (string * string list) list) : (string * Bril.instr list) list =
+let worklist (cfg : Bril.cfg) ~init:init ~transfer:transfer
+    ~merge:mergel : (string * 'v) list * Bril.cfg =
   let equal = String.equal in
-  let vals = List.map blocks ~f:(fun (b, _) -> b, init) in
+  let blocks = cfg.blocks in
   let wklst : string list = List.map ~f:fst blocks in
-  let loop_body curr wklst vals blocks edges =
+  let loop_body curr wklst vals (cfg : Bril.cfg) : string list * (string * 'v) list * Bril.cfg =
+    let blocks = cfg.blocks in 
+    let edges = cfg.edges in
     let v = List.Assoc.find_exn vals curr ~equal in
-    let preds =
-      List.filter edges ~f:(fun (n, l) -> mem l curr)
-      |> List.map ~f:fst in
+    let preds = get_preds curr cfg in
     let inv = mergel (List.map preds ~f:(fun n -> (List.Assoc.find_exn vals n ~equal).outv)) in
     let b', outv = transfer (List.Assoc.find_exn blocks curr ~equal) inv in
     let wklst =
@@ -185,40 +190,22 @@ let cp_worklist (blocks : (string * Bril.instr list) list)
       then wklst
       else (List.Assoc.find edges curr ~equal
         |> Option.value_map ~default:[] ~f:Fn.id) @ wklst in
-    let vals =
-      if empty b'
-      then List.Assoc.remove vals curr ~equal
-      else List.Assoc.add vals curr {inv; outv;} ~equal in
-    let blocks =
-      if empty b'
-      then List.Assoc.remove blocks curr ~equal
-      else List.Assoc.add blocks curr b' ~equal in
-    let edges =
-      if empty b'
-      then List.Assoc.remove edges curr ~equal
-      else edges in
-    let edges =
-      if empty b'
-      then List.map edges ~f:(fun (n, l) -> n, List.filter l
-        ~f:(fun m -> String.equal m curr))
-      else edges in
-    wklst, vals, blocks, edges in
-  let rec main_loop (wklst, vals, blocks, edges) =
+    let vals = List.Assoc.add vals curr {inv; outv;} ~equal in
+    let blocks = List.Assoc.add blocks curr b' ~equal in
+    let edges = Bril.update_edges blocks in
+    wklst, vals, Bril.{ blocks; edges; } in
+  let rec main_loop (wklst, vals, cfg) =
     match wklst with
-    | [] -> wklst, vals, blocks, edges
-    | n :: t -> main_loop (loop_body n t vals blocks edges) in
-  let (_, _, blocks, _) = main_loop (wklst, vals, blocks, edges) in
-  blocks
+    | [] -> wklst, vals, cfg
+    | n :: t -> main_loop (loop_body n t vals cfg) in
+  let (_, vals, cfg) = main_loop (wklst, init, cfg) in
+  vals, cfg
 
 let cp_func (func : Bril.func) : Bril.func =
-  let Bril.{ blocks; edges } = Bril.to_blocks_and_cfg func.instrs in
-  let blocks' = cp_worklist blocks edges in
-  let f acc (l, b) =
-    List.Assoc.find blocks' l ~equal:String.equal
-    |> Option.value_map ~default:acc ~f:(fun b' -> (l, b') :: acc) in
-  let instrs' = List.fold blocks ~init:[] ~f
-    |> List.map ~f:snd
-    |> List.rev
+  let cfg = Bril.to_blocks_and_cfg func.instrs in
+  let order = List.map cfg.blocks ~f:fst in
+  let _, cfg = worklist cfg ~init:(cp_init func cfg) ~transfer:cp_transfer ~merge:cp_mergel in
+  let instrs' = List.map order ~f:(List.Assoc.find_exn cfg.blocks ~equal:String.equal)
     |> List.fold ~init:[] ~f:(@) in
   { func with instrs = instrs'; }
 
