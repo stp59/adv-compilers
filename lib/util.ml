@@ -24,3 +24,7 @@ let get_vars (args : Bril.dest list) (cfg : Bril.cfg) : Bril.dest list =
   let get_block_vars acc (l, b) =
     List.fold b ~init:acc ~f:get_instr_vars in
   List.fold cfg.blocks ~init:args ~f:get_block_vars
+
+let is_reachable (cfg : Bril.cfg) (entry : string) (b : string) : bool =
+  let preds = get_preds b cfg in 
+  not (List.is_empty preds) || (equal entry b)

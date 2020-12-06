@@ -105,6 +105,7 @@ type t = { funcs : func list } [@@deriving sexp_of]
 type cfg = {
   blocks : (string * instr list) list;
   edges : (string * string list) list;
+  order : string list;
 } [@@deriving sexp_of]
 
 let update_edges blocks =
@@ -117,7 +118,6 @@ let update_edges blocks =
         | None -> []
         | Some (label, _) -> [ label ] end in
     (name, next))
-
 
 let to_blocks_and_cfg instrs =
   let block_name i = sprintf "b%d" (i + 1) in
@@ -140,7 +140,8 @@ let to_blocks_and_cfg instrs =
   in
   let blocks = List.rev blocks in
   let edges = update_edges blocks in
-  { blocks; edges; }
+  let order = List.map blocks ~f:fst in
+  { blocks; edges; order; }
 
 let from_json json =
   let open Yojson.Basic.Util in

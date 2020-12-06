@@ -96,18 +96,16 @@ let rec elim_dead_global (func : Bril.func) : Bril.func =
   then { func with instrs = instrs' }
   else elim_dead_global { func with instrs = instrs' }
 
-let elim_unreachable (func : Bril.func) : Bril.func =
-  let instrs = func.instrs in
-  let cfg = Bril.to_blocks_and_cfg instrs in
+let elim_instrs_unreachable (cfg : Bril.cfg) (entry : string) : Bril.instr list =
+  cfg.blocks
+  |> List.filter ~f:(fun (b, _) -> is_reachable cfg entry b)
+  |> List.map ~f:snd
+  |> List.fold ~init:[] ~f:(@)
+
+let elim_func_unreachable (func : Bril.func) : Bril.func =
+  let cfg = Bril.to_blocks_and_cfg func.instrs in
   let entry = List.hd_exn cfg.blocks |> fst in
-  let f (b, _) =
-    let preds = get_preds b cfg in
-    not (List.is_empty preds) || (equal entry b) in
-  { func with instrs =
-      cfg.blocks
-      |> List.filter ~f
-      |> List.map ~f:snd
-      |> List.fold ~init:[] ~f:(@) }
+  { func with instrs = elim_instrs_unreachable cfg entry; }
 
 let elim_trivial_jumps (func : Bril.func) : Bril.func =
   let g l = function
@@ -124,6 +122,6 @@ let elim_trivial_jumps (func : Bril.func) : Bril.func =
 let elim_dead (bril : Bril.t) : Bril.t =
   { funcs = List.map bril.funcs ~f:elim_dead_global
     |> List.map ~f:elim_dead_local
-    |> List.map ~f:elim_unreachable
+    |> List.map ~f:elim_func_unreachable
     |> List.map ~f:elim_trivial_jumps
   }

@@ -52,13 +52,12 @@ let merge_var v1 v2 =
 
 let cp_merge (v1 : cp_val) (v2 : cp_val) : cp_val = {
   bv = merge_block v1.bv v2.bv;
-  vvs = List.fold v2.vvs ~init:v1.vvs
-    ~f:(fun acc (n, v) -> List.Assoc.add acc n
-      (merge_var (List.Assoc.find acc n ~equal:String.equal
-        |> Option.value_map ~default:v ~f:Fn.id) v) ~equal:String.equal);
+  vvs = List.map v2.vvs ~f:fst
+    |> List.map ~f:(fun v -> v, merge_var (List.Assoc.find_exn v1.vvs v ~equal)
+      (List.Assoc.find_exn v2.vvs v ~equal));
 }
 
-let cp_mergel = List.fold ~init:pre_cp_init ~f:(cp_merge)
+let cp_mergel init = List.fold ~init:init ~f:(cp_merge)
 
 let symb_binop op v1 v2 =
   match v1, v2 with
@@ -132,9 +131,7 @@ let cp_transfer (is : Bril.instr list) (inv : cp_val) : Bril.instr list * cp_val
         | Const c -> Const ((n, t), c) :: acc, v end
     | Jmp l -> i :: acc, v
     | Br (arg, l1, l2) ->
-      let varg =
-        List.Assoc.find v.vvs arg ~equal
-        |> Option.value_map ~default:Uninit ~f:Fn.id in
+      let varg = List.Assoc.find_exn v.vvs arg ~equal in
       begin match varg with
         | Uninit | Conflict -> i :: acc, v
         | Const (Bool true) -> Jmp l1 :: acc, v
@@ -173,27 +170,39 @@ let vals_equal (v1 : cp_val) (v2 : cp_val) : bool =
         |> Option.value_map ~default:(is_uninit v) ~f:(var_vals_equal v)) in
   bveq && vvseq
 
+let string_of_val v =
+  match v with
+  | Const _ -> "constant"
+  | Uninit -> "uninit"
+  | Conflict -> "conflict"
+
 let worklist (cfg : Bril.cfg) ~init:init ~transfer:transfer
     ~merge:mergel : (string * 'v) list * Bril.cfg =
   let equal = String.equal in
   let blocks = cfg.blocks in
-  let wklst : string list = List.map ~f:fst blocks in
-  let loop_body curr wklst vals (cfg : Bril.cfg) : string list * (string * 'v) list * Bril.cfg =
-    let blocks = cfg.blocks in 
-    let edges = cfg.edges in
+  let order = cfg.order in
+  let entry = List.hd_exn order in
+  let wklst = List.map ~f:fst blocks in
+  let loop_body curr wklst vals (acc_cfg : Bril.cfg) : string list * (string * 'v) list * Bril.cfg =
+    let edges = acc_cfg.edges in
+    let blocks_tmp = List.map acc_cfg.order ~f:(fun b -> b, List.Assoc.find_exn acc_cfg.blocks b ~equal) in
+    let edges_tmp = Bril.update_edges blocks_tmp in
+    let acc_cfg_tmp = Bril.{ blocks = blocks_tmp; edges = edges_tmp; order; } in
     let v = List.Assoc.find_exn vals curr ~equal in
-    let preds = get_preds curr cfg in
+    let preds = get_preds curr acc_cfg in
+    let preds = List.filter preds ~f:(fun p -> is_reachable acc_cfg_tmp entry p) in
     let inv = mergel (List.map preds ~f:(fun n -> (List.Assoc.find_exn vals n ~equal).outv)) in
-    let b', outv = transfer (List.Assoc.find_exn blocks curr ~equal) inv in
+    let b', outv = transfer (List.Assoc.find_exn cfg.blocks curr ~equal) inv in
     let wklst =
       if vals_equal outv v.outv
       then wklst
-      else (List.Assoc.find edges curr ~equal
-        |> Option.value_map ~default:[] ~f:Fn.id) @ wklst in
+      else ((List.Assoc.find_exn edges curr ~equal)
+        |> List.filter ~f:(fun n -> not (mem n wklst))) @ wklst in
     let vals = List.Assoc.add vals curr {inv; outv;} ~equal in
-    let blocks = List.Assoc.add blocks curr b' ~equal in
-    let edges = Bril.update_edges blocks in
-    wklst, vals, Bril.{ blocks; edges; } in
+    let blocks = List.Assoc.add acc_cfg.blocks curr b' ~equal in
+    let blocks = List.map acc_cfg.order ~f:(fun b -> b, List.Assoc.find_exn blocks b ~equal) in
+    let acc_cfg = Bril.{ blocks; edges; order; } in
+    wklst, vals, acc_cfg in
   let rec main_loop (wklst, vals, cfg) =
     match wklst with
     | [] -> wklst, vals, cfg
@@ -203,9 +212,10 @@ let worklist (cfg : Bril.cfg) ~init:init ~transfer:transfer
 
 let cp_func (func : Bril.func) : Bril.func =
   let cfg = Bril.to_blocks_and_cfg func.instrs in
-  let order = List.map cfg.blocks ~f:fst in
-  let _, cfg = worklist cfg ~init:(cp_init func cfg) ~transfer:cp_transfer ~merge:cp_mergel in
-  let instrs' = List.map order ~f:(List.Assoc.find_exn cfg.blocks ~equal:String.equal)
+  let init = cp_init func cfg in 
+  let blck_init = (init |> List.hd_exn |> snd).inv in
+  let _, cfg = worklist cfg ~init:init ~transfer:cp_transfer ~merge:(cp_mergel blck_init) in
+  let instrs' = List.map cfg.order ~f:(List.Assoc.find_exn cfg.blocks ~equal:String.equal)
     |> List.fold ~init:[] ~f:(@) in
   { func with instrs = instrs'; }
 

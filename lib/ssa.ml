@@ -232,23 +232,22 @@ let not_single_phi = function
     the variable in question are removed. *)
 let ssa_of_instrs (args : Bril.dest list) (instrs : Bril.instr list) : Bril.instr list =
   let cfg = Bril.to_blocks_and_cfg instrs in
-  let order = cfg.blocks |> List.map ~f:fst in
-  let entry = List.hd_exn order in
-  let cfg, order, entry =
+  let entry = List.hd_exn cfg.order in
+  let cfg, entry =
     let open Bril in
     if List.exists cfg.edges ~f:(fun (e, succs) -> mem entry succs)
     then
       { blocks = ("entry1", [Label "entry1"; Jmp entry ]) :: cfg.blocks;
-        edges = ("entry1", [entry]) :: cfg.edges },
-      "entry1" :: order,
+        edges = ("entry1", [entry]) :: cfg.edges;
+        order = "entry1" :: cfg.order; },
       "entry1"
-    else cfg, order, entry in
+    else cfg, entry in
   let doms = get_dominance_map cfg in
   let cfg = insert_phis args cfg doms in
   let cfg = rename_vars args cfg doms entry in
   let cfg = { cfg with blocks = List.map cfg.blocks
     ~f:(fun (b, is) -> b, List.map is ~f:(remove_uninit_phis (List.map args ~f:fst))) } in
-  let blocks = List.map order ~f:(List.Assoc.find_exn cfg.blocks ~equal) in
+  let blocks = List.map cfg.order ~f:(List.Assoc.find_exn cfg.blocks ~equal) in
   List.fold ~init:[] ~f:(@) blocks
 
 let ssa_of_func (func : Bril.func) : Bril.func =

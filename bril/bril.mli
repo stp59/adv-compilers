@@ -73,6 +73,7 @@ type t = { funcs : func list } [@@deriving sexp_of]
 type cfg = {
   blocks : (string * instr list) list;
   edges : (string * string list) list;
+  order : string list;
 } [@@deriving sexp_of]
 
 val update_edges : (string * instr list) list -> (string * string list) list
