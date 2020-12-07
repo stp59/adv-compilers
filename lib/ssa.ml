@@ -17,18 +17,6 @@ let add_labels_func (func : Bril.func) : Bril.func =
 let add_labels (bril : Bril.t) : Bril.t =
   { funcs = List.map bril.funcs ~f:add_labels_func }
 
-(** [defs_var v instrs] is [true] iff. the intructions [instrs] write to the
-    variable [var]. *)
-let defs_var (v : string) (instrs : Bril.instr list) : bool =
-  let f instr =
-    match instr with
-    | Bril.Const ((dest, _), _) | Bril.Binary ((dest, _), _, _, _)
-    | Bril.Unary ((dest, _), _, _) | Bril.Call (Some (dest, _), _, _)
-    | Bril.Phi ((dest, _), _, _, _) ->
-      equal (String.split_on_chars ~on:['.'] dest |> List.hd_exn) v
-    | _ -> false in
-  List.exists instrs ~f
-
 (** [get_var_defs v args cfg] is a list of blocks in the [cfg] which write to
     the variable [v]. Each of the [args] is treated as having been written to
     in the entry block. *)

@@ -12,6 +12,18 @@ let get_preds (block : string) (cfg : Bril.cfg) : string list =
   |> List.map ~f:fst
   |> List.filter ~f:(fun n -> List.Assoc.find_exn cfg.edges n ~equal |> mem block)
 
+(** [defs_var v instrs] is [true] iff. the intructions [instrs] write to the
+    variable [var]. *)
+let defs_var (v : string) (instrs : Bril.instr list) : bool =
+  let f instr =
+    match instr with
+    | Bril.Const ((dest, _), _) | Bril.Binary ((dest, _), _, _, _)
+    | Bril.Unary ((dest, _), _, _) | Bril.Call (Some (dest, _), _, _)
+    | Bril.Phi ((dest, _), _, _, _) ->
+      equal (String.split_on_chars ~on:['.'] dest |> List.hd_exn) v
+    | _ -> false in
+  List.exists instrs ~f
+
 (** [get_vars args cfg] is a list of all the variables (and their types) that
     appear in the [cfg], including the [args]. *)
 let get_vars (args : Bril.dest list) (cfg : Bril.cfg) : Bril.dest list =

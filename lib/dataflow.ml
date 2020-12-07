@@ -13,7 +13,7 @@ module type Framework = sig
 
   val init : Bril.func -> Bril.cfg -> (string * v df_val) list
 
-  val transfer : Bril.instr list -> v -> Bril.instr list * v
+  val transfer : string -> Bril.instr list -> v -> Bril.instr list * v
 
   val mergel : v -> v list -> v
 
@@ -38,7 +38,7 @@ module MakeAnalysis (F : Framework) = struct
       let preds = get_preds curr acc_cfg in
       let preds = List.filter preds ~f:(fun p -> is_reachable acc_cfg_tmp entry p) in
       let inv = mergel (List.map preds ~f:(fun n -> (List.Assoc.find_exn vals n ~equal).outv)) in
-      let b', outv = F.transfer (List.Assoc.find_exn cfg.blocks curr ~equal) inv in
+      let b', outv = F.transfer curr (List.Assoc.find_exn cfg.blocks curr ~equal) inv in
       let wklst =
         if F.vals_equal outv v.outv
         then wklst
@@ -144,7 +144,7 @@ module CPFramework = struct
         | Bril.Id -> Const c
         | _ -> Conflict end
 
-  let transfer (is : Bril.instr list) (inv : v) : Bril.instr list * v =
+  let transfer (block : string) (is : Bril.instr list) (inv : v) : Bril.instr list * v =
     let equal = String.equal in
     let f (acc, v) i =
       match i with

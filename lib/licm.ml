@@ -2,18 +2,62 @@ open Core
 open Util
 
 module RDFramework = struct
-  type v  = {
+  type var_def  = {
     block : string;
     idx : int;
   }
 
-  let vals_equal v1 v2 = false (* TODO *)
+  (** Maps variables to lists of instructions that define them *)
+  type v = (string * var_def list) list
 
-  let init func cfg = [] (* TODO *)
+  let var_defs_equal d1 d2 =
+    equal d1.block d2.block && Int.equal d1.idx d2.idx
 
-  let transfer instrs v = instrs, v (* TODO *)
+  let var_vals_equal v1 v2 =
+    List.for_all v1
+      ~f:(fun d1 -> List.exists v2 ~f:(fun d2 -> var_defs_equal d1 d2))
+    && List.for_all v2
+      ~f:(fun d2 -> List.exists v1 ~f:(fun d1 -> var_defs_equal d1 d2))
 
-  let mergel init vs = init (* TODO *)
+  let vals_equal v1 v2 =
+    List.for_all v1
+      ~f:(fun (var, v) -> List.Assoc.find_exn v2 var ~equal |> var_vals_equal v)
+    && List.for_all v2
+      ~f:(fun (var, v) -> List.Assoc.find_exn v1 var ~equal |> var_vals_equal v)
+
+  let init (func : Bril.func) (cfg : Bril.cfg) =
+    let args = List.map func.args ~f:fst in
+    let vars = get_vars func.args cfg |> List.map ~f:fst in
+    let entry = List.hd_exn cfg.order in
+    let init = List.map vars
+      ~f:(fun v -> v, if mem v args then [{block=entry; idx=(-1)}] else []) in
+    List.map cfg.blocks ~f:(fun (b, is) -> b, Dataflow.{inv=init; outv=init; })
+
+  let transfer (block : string) (instrs : Bril.instr list) (inv : v) =
+    let f idx acc (i : Bril.instr) =
+      match i with
+      | Const ((n, _), _) | Binary ((n, _), _, _, _)
+      | Unary ((n, _), _, _) | Call (Some (n, _), _, _)
+      | Phi ((n, _), _, _, _) -> List.Assoc.add acc n idx ~equal
+      | _ -> acc in
+    let inv = List.filter inv ~f:(fun (v, _) -> not (defs_var v instrs)) in
+    let gens = List.foldi instrs ~init:[] ~f
+      |> List.map ~f:(fun (v, idx) -> v, [{block; idx}]) in
+    instrs, inv @ gens
+
+  let merge_vars v1 v2 =
+    List.fold v1 ~init:v2 ~f:(fun acc d1 ->
+      if List.exists acc ~f:(fun d2 -> equal d1.block d2.block)
+      then acc else d1 :: acc)
+
+  let merge v1 v2 =
+    List.map v1 ~f:fst
+    |> List.map ~f:(fun var -> var, merge_vars
+      (List.Assoc.find_exn v1 var ~equal)
+      (List.Assoc.find_exn v2 var ~equal))
+
+  let mergel init vs =
+    List.fold vs ~init ~f:merge
 
 end
 
