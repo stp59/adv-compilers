@@ -70,25 +70,54 @@ type loop = {
   exits : string list;
 }
 
-(** [get_backedges cfg] is a list of ordered [string * string] pairs which
+(** [get_backedges cfg doms] is a list of ordered [string * string] pairs which
     represent backedges in the [cfg]. *)
-let get_backedges (cfg : Bril.cfg) : (string * string) list =
-  [] (* TODO *)
+let get_backedges (cfg : Bril.cfg) (doms : dominance_map) : (string * string) list =
+  let edges = List.map cfg.edges ~f:(fun (n, es) -> List.map es ~f:(fun e -> n,e))
+    |> List.fold ~init:[] ~f:(@) in
+  List.filter edges ~f:(fun (b,a) -> List.Assoc.find_exn doms b ~equal |> mem a)
 
-(** [get_loops cfg doms backedge] is a loop in the [cfg] generated around the
-    [backedge] in the cfg. *)
-let get_loop (cfg : Bril.cfg) (doms : dominance_map) (backedge : string * string) : loop =
-  { blocks = []; header = ""; pre_header = ""; exits = []; } (* TODO *)
+(** [get_loop cfg doms backedge] is a loop in the [cfg] generated around the [backedge]. *)
+let get_loop (cfg: Bril.cfg) (doms: dominance_map) (backedge: string * string): loop =
+  let head, exit = backedge in
+  let loop = {
+    blocks = [head; exit;];
+    header = exit;
+    pre_header = "";
+    exits = []
+  } in
+  let rec add_preds loop =
+    let preds = loop.blocks
+      |> List.filter ~f:(fun b -> equal b head |> not)
+      |> List.map ~f:(fun b -> get_preds b cfg)
+      |> List.fold ~init:[] ~f:(@) in
+    let blocks = List.fold preds ~init:loop.blocks
+      ~f:(fun acc p -> if mem p acc then acc else p :: acc) in
+    if Int.equal (List.length blocks) (List.length loop.blocks)
+    then loop
+    else add_preds { loop with blocks = blocks; } in
+  let loop = add_preds loop in
+  { loop with exits =
+      List.filter loop.blocks ~f:(fun b -> List.Assoc.find_exn cfg.edges b ~equal
+        |> List.exists ~f:(fun s -> mem s loop.blocks |> not)) }
 
 (** [is_natural cfg loop] is [true] iff. the set of nodes given by [loop] only
     has one in-going edge according to the [cfg]. *)
 let is_natural (cfg : Bril.cfg) (loop : loop) : bool =
-  false (* TODO *)
+  let preds = loop.blocks
+    |> List.map ~f:(fun b -> get_preds b cfg)
+    |> List.fold ~init:[] ~f:(@)
+    |> List.filter ~f:(fun b -> not (mem b loop.blocks)) in
+  let header_preds = get_preds loop.header cfg in
+  List.for_all preds ~f:(fun p -> mem p header_preds) &&
+  List.for_all preds ~f:(fun p -> List.Assoc.find_exn cfg.edges p ~equal
+    |> List.for_all ~f:(fun s -> equal s loop.header || not (mem s loop.blocks)))
 
-(** [add_pre_headers cfg loops] is a modified version of both the [cfg] and the
-    list of [loops] which adds proper pre-headers to each loop in [loops] where
-    one does not exist. *)
-let add_pre_headers (cfg : Bril.cfg) (loops : loop list) : Bril.cfg * loop list =
+(** [add_pre_headers (cfg, loops) (i, loop)] is a modified version of both the
+    [cfg] and the indexed list of [loops] which adds proper pre-headers to the
+    [i]th [loop] if one does not yet exist. *)
+let add_pre_header (cfg, loops : Bril.cfg * (int * loop) list)
+    (i, loop : int * loop) : Bril.cfg * (int * loop) list =
   cfg, loops (* TODO *)
 
 (** [tag_lis cfg loop rdefs] is a list of mappings from blocks to lines numbers,
@@ -118,11 +147,13 @@ let move_code (cfg : Bril.cfg) (loop : loop) (li : (string * int list) list) : B
     pre-headers are inserted as needed). *)
 let move_func_code (func : Bril.func) : Bril.func =
   let cfg = Bril.to_blocks_and_cfg func.instrs in
-  let backedges = get_backedges cfg in
   let doms = get_dominance_map cfg in
+  let backedges = get_backedges cfg doms in
   let loops = List.map backedges ~f:(get_loop cfg doms) in
   let loops = List.filter loops ~f:(is_natural cfg) in
-  let cfg, loops = add_pre_headers cfg loops in
+  let idx_loops = List.init (List.length loops) ~f:(fun i -> i, List.nth_exn loops i) in
+  let cfg, loops = List.fold idx_loops ~init:(cfg, idx_loops) ~f:add_pre_header in
+  let loops = List.map loops ~f:snd in
   let doms = get_dominance_map cfg in
   let vals, _ = RDAnalysis.worklist func cfg in
   let lis = List.map loops ~f:(tag_lis cfg vals) in
