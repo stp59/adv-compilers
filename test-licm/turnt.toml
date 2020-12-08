@@ -1,0 +1,1 @@
+command = "bril2json < {filename} | ../bril-opt --licm | bril2txt"

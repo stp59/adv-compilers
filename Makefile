@@ -30,5 +30,8 @@ test-to-ssa: build
 test-of-ssa: build
 	@turnt test-ofssa/*.bril
 
+test-licm: build
+	@turnt test-licm/*.bril
+
 test: build
 	@turnt benchmarks/*.bril

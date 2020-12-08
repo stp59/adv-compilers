@@ -1,0 +1,15 @@
+@main {
+.entry:
+  count: int = const 10;
+.loop:
+  a: int = const 5;
+  b: int = const 7;
+  one: int = const 1;
+  zero: int = const 0;
+  c: int = mul a b;
+  count: int = sub count one;
+  cond: bool = eq zero count;
+  br cond .end .loop;
+.end:
+  print c;
+}

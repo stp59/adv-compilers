@@ -2,18 +2,16 @@ open Opt
 open Core
 open Command.Spec
 
-let help_doc = "TODO: help menu unimplemented"
-let contrived_doc = "TODO: contrived documentation unimplemented"
-let nop_doc = "TODO: nop documentation unimplemented"
-let tdce_doc = "TODO: tdce documentation unimplemented"
-let lvn_doc = "TODO: lvn documentation unimplemented"
-let to_ssa_doc = "TODO: to ssa documentation unimplemented"
-let of_ssa_doc = "TODO: of ssa documentation unimplemented"
+let contrived_doc = "sum the value of all constants (ints and bools) and emit on stdout"
+let nop_doc = "parse the bril json into the OCaml datastructure, then deparse back into json and emit on stdout"
+let tdce_doc = "perform trivial dead code elimination"
+let lvn_doc = "perform local value numbering followed by tdce"
+let cp_doc = "perform the constant propagation optimization via dataflow analaysis"
+let to_ssa_doc = "convert the program to SSA"
+let of_ssa_doc = "convert the program from SSA"
+let licm_doc = "perform loop-invariant code motion"
 
 let (>>|) opt func = Option.map ~f:func opt
-
-let do_help () =
-  print_endline help_doc
 
 let do_contrived () =
   let json = In_channel.input_all Stdlib.stdin in
@@ -66,9 +64,16 @@ let do_of_ssa () =
   |> Bril.to_string
   |> Out_channel.output_string Out_channel.stdout
 
+let do_licm () =
+  In_channel.input_all In_channel.stdin
+  |> Bril.from_string
+  |> Licm.move_code
+  |> Tdce.elim_dead
+  |> Bril.to_string
+  |> Out_channel.output_string Out_channel.stdout
+
 let do_command (contrived : bool) (nop : bool) (tdce : bool)
-    (lvn : bool) (cp : bool) (to_ssa : bool) (of_ssa : bool) : unit =
-  (* if help then do_help () *)
+    (lvn : bool) (cp : bool) (to_ssa : bool) (of_ssa : bool) (licm : bool) : unit =
   if contrived then do_contrived ()
   else if nop then do_nop ()
   else if tdce then do_tdce ()
@@ -76,24 +81,24 @@ let do_command (contrived : bool) (nop : bool) (tdce : bool)
   else if cp then do_cp ()
   else if to_ssa then do_to_ssa ()
   else if of_ssa then do_of_ssa ()
-  else print_endline "no flags"
-  (* else do_help () *)
+  else if licm then do_licm ()
+  else print_endline "Usage: bril-opt [flags]"
 
 let spec = 
   empty
-  (* +> flag "--help" no_arg ~doc:help_doc *)
   +> flag "--contrived" no_arg ~doc:contrived_doc
   +> flag "--nop" no_arg ~doc:nop_doc
   +> flag "--tdce" no_arg ~doc:tdce_doc
   +> flag "--lvn" no_arg ~doc:lvn_doc
-  +> flag "--cp" no_arg ~doc:lvn_doc
+  +> flag "--cp" no_arg ~doc:cp_doc
   +> flag "--tossa" no_arg ~doc:to_ssa_doc
   +> flag "--ofssa" no_arg ~doc:of_ssa_doc
+  +> flag "--licm" no_arg ~doc:licm_doc
 
 let command = Command.basic_spec
-  ~summary:"summary is empty for now"
-  ~readme:(fun () -> "also empty for now")
-  spec (fun contrived nop tdce lvn cp to_ssa of_ssa () ->
-    do_command contrived nop tdce lvn cp to_ssa of_ssa)
+  ~summary:"A collection of optimizations/transformations on the sample low-level intermediate langauge bril."
+  ~readme:(fun () -> "Flags take the json representation of bril programs from standard input and output the transformed bril json on standard output.")
+  spec (fun contrived nop tdce lvn cp to_ssa of_ssa licm () ->
+    do_command contrived nop tdce lvn cp to_ssa of_ssa licm)
 
 let () = Command.run ~version:"1.0" ~build_info:"something" command
