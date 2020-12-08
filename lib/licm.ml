@@ -1,6 +1,10 @@
 open Core
 open Util
 
+let fresh_label =
+  let box = ref (-1) in
+  fun () -> box := !box + 1; sprintf "licm.prehdr.%d" (!box)
+
 module RDFramework = struct
   type var_def  = {
     block : string;
@@ -113,12 +117,53 @@ let is_natural (cfg : Bril.cfg) (loop : loop) : bool =
   List.for_all preds ~f:(fun p -> List.Assoc.find_exn cfg.edges p ~equal
     |> List.for_all ~f:(fun s -> equal s loop.header || not (mem s loop.blocks)))
 
+let change_jumps (is: Bril.instr list) (before: string) (after: string): Bril.instr list =
+  let f = function
+    | Bril.Jmp l -> if equal l before then Bril.Jmp after else Bril.Jmp l
+    | Bril.Br (arg, l1, l2) ->
+      let l1 = if equal l1 before then after else l1 in
+      let l2 = if equal l2 before then after else l2 in
+      Bril.Br (arg, l1, l2)
+    | i -> i in
+  List.map is ~f
+
 (** [add_pre_headers (cfg, loops) (i, loop)] is a modified version of both the
     [cfg] and the indexed list of [loops] which adds proper pre-headers to the
     [i]th [loop] if one does not yet exist. *)
-let add_pre_header (cfg, loops : Bril.cfg * (int * loop) list)
-    (i, loop : int * loop) : Bril.cfg * (int * loop) list =
-  cfg, loops (* TODO *)
+let add_pre_header (cfg, loops : Bril.cfg * (string * loop) list)
+    (i : string) : Bril.cfg * (string * loop) list =
+  let loop = List.Assoc.find_exn loops i ~equal in
+  let header_preds = get_preds loop.header cfg
+    |> List.filter ~f:(fun b -> mem b loop.blocks |> not) in
+  if List.length header_preds |> Int.equal 1
+  then
+    let loop = { loop with pre_header = List.hd_exn header_preds } in
+    cfg, List.Assoc.add loops i loop ~equal
+  else
+    let new_block = fresh_label () in
+    let f acc b =
+      if equal loop.header b
+      then b :: new_block :: acc
+      else b :: acc in
+    let pre_header_code = [ Bril.Label (new_block); Bril.Jmp loop.header; ] in
+    let order = List.fold cfg.order ~init:[] ~f |> List.rev in
+    let blocks = List.Assoc.add cfg.blocks new_block pre_header_code ~equal in
+    let f (b, is) =
+      if mem b loop.blocks || equal b new_block then b, is
+      else b, change_jumps is loop.header new_block in
+    let blocks = List.map blocks ~f in
+    let edges = Bril.update_edges blocks in
+    let cfg = Bril.{ blocks; edges; order; } in
+    let f (i, loop') =
+      let blocks =
+        if mem new_block loop'.blocks && not (equal new_block loop'.header)
+        then new_block :: loop'.blocks
+        else loop'.blocks in
+      i, { loop with blocks = blocks; } in
+    let loops = List.map loops ~f in
+    let loop = { loop with pre_header = new_block; } in
+    let loops = List.Assoc.add loops i loop ~equal in
+    cfg, loops
 
 (** [tag_lis cfg loop rdefs] is a list of mappings from blocks to lines numbers,
     each of which point to an instruction which is loop invariant with respect to
@@ -151,8 +196,9 @@ let move_func_code (func : Bril.func) : Bril.func =
   let backedges = get_backedges cfg doms in
   let loops = List.map backedges ~f:(get_loop cfg doms) in
   let loops = List.filter loops ~f:(is_natural cfg) in
-  let idx_loops = List.init (List.length loops) ~f:(fun i -> i, List.nth_exn loops i) in
-  let cfg, loops = List.fold idx_loops ~init:(cfg, idx_loops) ~f:add_pre_header in
+  let idx_loops = List.init (List.length loops) ~f:string_of_int in
+  let zipped = List.zip_exn idx_loops loops in
+  let cfg, loops = List.fold idx_loops ~init:(cfg, zipped) ~f:add_pre_header in
   let loops = List.map loops ~f:snd in
   let doms = get_dominance_map cfg in
   let vals, _ = RDAnalysis.worklist func cfg in

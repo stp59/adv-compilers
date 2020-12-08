@@ -1,0 +1,21 @@
+@main {
+.entry:
+  count: int = const 10;
+  b: bool = const true;
+  br b .if .else;
+.loop:
+  a: int = const 5;
+  b: int = const 7;
+  one: int = const 1;
+  zero: int = const 0;
+  c: int = mul a b;
+  count: int = sub count one;
+  cond: bool = eq zero count;
+  br cond .end .loop;
+.if:
+  jmp .loop;
+.else:
+  jmp .loop;
+.end:
+  print c;
+}

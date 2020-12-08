@@ -1,0 +1,22 @@
+@main {
+.entry:
+  count: int = const 10;
+  b: bool = const true;
+  br b .if .else;
+.licm.prehdr.0:
+  a: int = const 5;
+  b: int = const 7;
+  one: int = const 1;
+  zero: int = const 0;
+  c: int = mul a b;
+.loop:
+  count: int = sub count one;
+  cond: bool = eq zero count;
+  br cond .end .loop;
+.if:
+  jmp .licm.prehdr.0;
+.else:
+  jmp .licm.prehdr.0;
+.end:
+  print c;
+}
