@@ -187,7 +187,7 @@ let tag_instr_lis (loop : loop) (rdefs : RDFramework.v) (block : string) (idx : 
     ~f:(fun var -> List.Assoc.add rdefs var [{block; idx; }] ~equal),
   let f var = 
     (* fprintf Out_channel.stdout "Reaching definitions for block %s, variable %s are in blocks:\n" block var; *)
-    List.iter (List.Assoc.find_exn rdefs var ~equal) ~f:(fun {block; idx} -> fprintf Out_channel.stdout "  %s\n" block);
+    (* List.iter (List.Assoc.find_exn rdefs var ~equal) ~f:(fun {block; idx} -> fprintf Out_channel.stdout "  %s\n" block); *)
     let defs = List.Assoc.find_exn rdefs var ~equal in 
     let all_out = List.for_all defs
       ~f:(fun {block; _} -> not (mem block loop.blocks)) in
@@ -239,6 +239,13 @@ let tag_lis (cfg : Bril.cfg) (rdefs : (string * RDFramework.v Dataflow.df_val) l
     if lis_equal acc acc' then acc' else f acc' in
   f []
 
+let has_effects (instr : Bril.instr) : bool =
+  match instr with
+  | Label _ | Binary (_, Div, _, _) | Binary (_, Fdiv, _, _) | Jmp _
+  | Br (_, _, _) | Call (_, _, _) | Ret _ | Print _ -> true
+  | Const (_, _) | Binary (_, _, _, _) | Unary (_, _, _)
+  | Nop | Phi (_, _, _, _) -> false
+
 (** [is_safe cfg doms loop block idx] is [true] iff. the [idx]th intruction in
     the [block] is "safe" to move into the loop header. "Safe" instructions meet
     the following criteria:
@@ -249,10 +256,43 @@ let tag_lis (cfg : Bril.cfg) (rdefs : (string * RDFramework.v Dataflow.df_val) l
          the loop *)
 let is_safe (cfg : Bril.cfg) (doms : dominance_map) (loop : loop)
     (block : string) (idx : int) : bool =
-  false (* TODO *)
+  let instr = List.nth_exn (List.Assoc.find_exn cfg.blocks block ~equal) idx in
+  let no_effects = not (has_effects instr) in
+  let doms_uses = true in
+  let no_redefs = true in
+  let doms_exits = true in
+  no_effects && doms_uses && no_redefs && doms_exits (* TODO *)
 
-let move_code (cfg : Bril.cfg) (loop : loop) (li : (string * int list) list) : Bril.cfg =
-  cfg (* TODO *)
+let move_code (cfg : Bril.cfg) (doms : dominance_map) (loop : loop)
+    (li : (string * int list) list) : Bril.cfg =
+  let is_tagged b (i, instr) =
+    List.Assoc.find_exn li b ~equal |> List.exists ~f:(Int.equal i) in
+  let f (b, instrs) = 
+    let idx_instrs = List.mapi instrs ~f:(fun i instr -> i, instr) in
+    let idx_loop_inv, idx_loop_v = List.partition_tf idx_instrs ~f:(is_tagged b) in
+    b, (List.map idx_loop_inv ~f:snd, List.map idx_loop_v ~f:snd) in
+  let loop_inv, loop_v =
+    List.map loop.blocks ~f:(fun b -> b, List.Assoc.find_exn cfg.blocks b ~equal)
+    |> List.map ~f
+    |> List.map ~f:(fun (b, (is1, is2)) -> (b, is1), (b, is2))
+    |> List.unzip in
+  let compare (a, _) (b, _) =
+    let adomsb = List.Assoc.find_exn doms b ~equal |> mem a in
+    let bdomsa = List.Assoc.find_exn doms a ~equal |> mem b in
+    if adomsb then -1
+    else if bdomsa then 1
+    else 0 in
+  let loop_inv = List.sort loop_inv ~compare
+    |> List.fold ~init:[] ~f:(fun acc (_, is) -> acc @ is) in
+  let pre_header_code = List.Assoc.find_exn cfg.blocks loop.pre_header ~equal in
+  let loop_inv = match List.rev pre_header_code with
+    | Jmp l :: tl -> (List.rev tl) @ loop_inv @ [Jmp l]
+    | Br (arg, l1, l2) :: tl -> (List.rev tl) @ loop_inv @ [Br (arg, l1, l2)]
+    | tl -> (List.rev tl) @ loop_inv in
+  let f (acc : Bril.cfg) (b, is) =
+    { acc with blocks = List.Assoc.add acc.blocks b is ~equal } in
+  let cfg = List.fold loop_v ~init:cfg ~f in
+  { cfg with blocks = List.Assoc.add cfg.blocks loop.pre_header loop_inv ~equal }
 
 (** [move_func_code func] is a modified verision of [func] in which all loop-
     invariant code is moved to the preheader of every natural loop (and
@@ -273,7 +313,7 @@ let move_func_code (func : Bril.func) : Bril.func =
     let lis = tag_lis cfg vals loop in
     let lis = List.map lis ~f:(fun (b, is) -> b, List.filter is
       ~f:(fun i -> is_safe cfg doms loop b i)) in
-    move_code cfg loop lis in
+    move_code cfg doms loop lis in
   let cfg = List.fold loops ~init:cfg ~f:move_loop_code in
   { func with instrs = cfg.order
     |> List.map ~f:(fun b -> List.Assoc.find_exn cfg.blocks b ~equal)
