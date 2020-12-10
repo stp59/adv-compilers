@@ -25,6 +25,8 @@ and output the modified json string
 * `--ofssa`: input text (json rep of bril), parse into bril AST,
 run the conversion from SSA form to regular bril, and output the
 final modified json string
+* `--licm`: input text (json rep of bril), parse into bril AST,
+run the loop-invariant code motion optimization with tdce as post-processing step, and output the modified json string
 
 # contrived.ml
 
@@ -77,3 +79,7 @@ output according to the ssa test suite on the bril repository:
 * insertion of trivial jumps between blocks in the CFG which are adjacent in the
   source code
 * ordering of phi-node reads
+
+# licm.ml
+
+Implements the loop-invariant code motion optimization. Current version behaves as expected on the simple examples in the `test-licm` directory with no correctness cost when applied to the benchmark suite. Performance is yet to be evaluated (TODO).
