@@ -83,10 +83,11 @@ let get_backedges (cfg : Bril.cfg) (doms : dominance_map) : (string * string) li
 
 (** [get_loop cfg doms backedge] is a loop in the [cfg] generated around the [backedge]. *)
 let get_loop (cfg: Bril.cfg) (doms: dominance_map) (backedge: string * string): loop =
-  let head, exit = backedge in
+  let exit, head = backedge in
+  (* fprintf Out_channel.stdout "backedge: %s -> %s\n" exit head; *)
   let loop = {
-    blocks = [head; exit;];
-    header = exit;
+    blocks = if equal exit head then [head] else[head; exit;];
+    header = head;
     pre_header = "";
     exits = []
   } in
@@ -129,6 +130,23 @@ let change_jumps (is: Bril.instr list) (before: string) (after: string): Bril.in
     | i -> i in
   List.map is ~f
 
+let union (l1 : string list) (l2 : string list) : string list =
+  List.fold l1 ~init:l2 ~f:(fun acc b -> if mem b acc then acc else b :: acc)
+
+let merge_loops (l1 : loop) (l2 : loop) : loop = {
+  blocks = union l1.blocks l2.blocks;
+  header = l1.header;
+  pre_header = l1.pre_header;
+  exits = union l1.exits l2.exits;
+}
+
+let merge_sc_loops (acc : (string * loop) list)
+    (idx, loop : string * loop) : (string * loop) list =
+  let entry = List.find acc ~f:(fun (idx, l) -> equal loop.header l.header) in
+  let entry = Option.map entry ~f:(fun (idx, l) -> idx, merge_loops loop l) in
+  let idx, loop = Option.value_map entry ~default:(idx,loop) ~f:Fn.id in
+  List.Assoc.add acc idx loop ~equal
+
 (** [add_pre_headers (cfg, loops) (i, loop)] is a modified version of both the
     [cfg] and the indexed list of [loops] which adds proper pre-headers to the
     [i]th [loop] if one does not yet exist. *)
@@ -138,10 +156,12 @@ let add_pre_header (cfg, loops : Bril.cfg * (string * loop) list)
   let header_preds = get_preds loop.header cfg
     |> List.filter ~f:(fun b -> mem b loop.blocks |> not) in
   if List.length header_preds |> Int.equal 1
-  then
+  then begin
+    (* print_endline "not inserting new block"; *)
     let loop = { loop with pre_header = List.hd_exn header_preds } in
-    cfg, List.Assoc.add loops i loop ~equal
-  else
+    cfg, List.Assoc.add loops i loop ~equal end
+  else begin
+    (* print_endline "inserting new block"; *)
     let new_block = fresh_label () in
     let f acc b =
       if equal loop.header b
@@ -165,7 +185,7 @@ let add_pre_header (cfg, loops : Bril.cfg * (string * loop) list)
     let loops = List.map loops ~f in
     let loop = { loop with pre_header = new_block; } in
     let loops = List.Assoc.add loops i loop ~equal in
-    cfg, loops
+    cfg, loops end
 
 let tag_instr_lis (loop : loop) (rdefs : RDFramework.v) (block : string) (idx : int) (lis : (string * int list) list)
     (instr : Bril.instr) : RDFramework.v * bool =
@@ -226,7 +246,7 @@ let lis_equal (lis1 : (string * int list) list) (lis2 : (string * int list) list
   let f lis b =
     List.Assoc.find lis b ~equal |> Option.value_map ~default:[] ~f:Fn.id in
   List.for_all lis1 ~f:(fun (b, idxs) -> same_idxs idxs (f lis2 b)) &&
-  List.for_all lis2 ~f:(fun (b, idxs) -> same_idxs idxs (f lis2 b))
+  List.for_all lis2 ~f:(fun (b, idxs) -> same_idxs idxs (f lis1 b))
 
 (** [tag_lis cfg loop rdefs] is a list of mappings from blocks to lines numbers,
     each of which point to an instruction which is loop invariant with respect to
@@ -246,6 +266,32 @@ let has_effects (instr : Bril.instr) : bool =
   | Const (_, _) | Binary (_, _, _, _) | Unary (_, _, _)
   | Nop | Phi (_, _, _, _) -> false
 
+let block_uses_var (cfg: Bril.cfg) (block: string) (var: string): bool =
+  let f (defed, used) (instr : Bril.instr) = 
+    let defed', used' = match instr with
+    | Label _ | Jmp _ | Ret None | Nop ->
+      false, false
+    | Const ((d, _), _) -> equal var d, false
+    | Binary ((d, _), _, arg1, arg2) ->
+      equal var d, equal arg1 var || equal arg2 var
+    | Unary ((d,_), _, arg) ->
+      equal var d, equal arg var
+    | Br (arg, _, _) | Ret (Some arg) ->
+      false, equal arg var
+    | Call (Some (d, _), _, args) | Phi ((d, _), args, _, _) ->
+      equal var d, List.exists args ~f:(equal var)
+    | Print args | Call (None, _, args) ->
+      false, List.exists args ~f:(equal var) in
+    (defed || defed'), not defed && (used || used') in
+  let instrs = List.Assoc.find_exn cfg.blocks block ~equal in 
+  List.fold instrs ~init:(false, false) ~f |> snd
+
+let get_var (instr : Bril.instr) : string option =
+  match instr with
+  | Const ((var, _), _) | Binary ((var, _), _, _, _) | Unary ((var, _), _, _)
+  | Call (Some (var, _), _, _) | Phi ((var, _), _, _, _) -> Some var
+  | _ -> None
+
 (** [is_safe cfg doms loop block idx] is [true] iff. the [idx]th intruction in
     the [block] is "safe" to move into the loop header. "Safe" instructions meet
     the following criteria:
@@ -255,18 +301,65 @@ let has_effects (instr : Bril.instr) : bool =
       4) The instruction dominates all loop exits, or the variable is dead after
          the loop *)
 let is_safe (cfg : Bril.cfg) (doms : dominance_map) (loop : loop)
-    (block : string) (idx : int) : bool =
+    (rdefs : (string * RDFramework.v Dataflow.df_val) list) (block : string)
+    (idx : int) : bool =
+  (* print_endline "about to get instr"; *)
   let instr = List.nth_exn (List.Assoc.find_exn cfg.blocks block ~equal) idx in
+  (* print_endline "got instr"; *)
+  let var = get_var instr in
+  (* let _print_cond = equal block "loop" && Option.equal equal var (Some "c") in *)
   let no_effects = not (has_effects instr) in
-  let doms_uses = true in
-  let no_redefs = true in
-  let doms_exits = true in
-  no_effects && doms_uses && no_redefs && doms_exits (* TODO *)
+  (* let () = if no_effects && print_cond then print_endline "def has no effects" else () in *)
+  let f (b, is) =
+    let doms = List.Assoc.find_exn doms b ~equal |> mem block in
+    (* print_endline "got doms"; *)
+    (* fprintf Out_channel.stdout "Block %s dominates block %s\n" block b; *)
+    let uses = Option.value_map var ~default:false ~f:(block_uses_var cfg b) in
+    let reaches = match var with None -> false | Some var -> rdefs
+      |> (fun x -> (List.Assoc.find_exn x b ~equal).inv)
+      |> (fun x -> List.Assoc.find_exn x var ~equal)
+      |> List.exists ~f:(fun RDFramework.{block=b; idx=i} -> Int.equal i idx && equal b block) in
+    doms || not (uses && reaches) in
+  (* print_endline "got reaches"; *)
+  let doms_uses = List.for_all cfg.blocks ~f in
+  (* let () = if doms_uses && print_cond then print_endline "def has doms uses" else () in *)
+  (* fprintf Out_channel.stdout "Blocks in the loop are: \n"; *)
+  (* List.iter loop.blocks ~f:(fun b -> fprintf Out_channel.stdout "  %s\n" b); *)
+  let no_redefs = loop.blocks
+    |> List.map ~f:(List.Assoc.find_exn cfg.blocks ~equal)
+    |> List.fold ~init:[] ~f:(@)
+    |> List.filter ~f:(fun i -> Option.value_map var ~default:false ~f:(fun v -> defs_var v [i]))
+    |> List.length
+    |> (fun l ->
+      (* Option.value_map var ~default:() ~f:(fun v -> fprintf Out_channel.stdout "Num defs for %s is: %d\n" v l); *)
+      (>=) 1 l) in
+  (* print_endline "got no_rdefs"; *)
+  let doms_exits = List.for_all loop.exits
+    ~f:(fun exit -> List.Assoc.find_exn doms exit ~equal |> mem block) in
+  (* print_endline "got doms_exits"; *)
+  let f (b, _) =
+    let rdefs = (List.Assoc.find_exn rdefs b ~equal).inv in
+    (* print_endline "got rdefs for block"; *)
+    let rdefs = Option.value_map var ~default:[]
+      ~f:(fun var -> List.Assoc.find_exn rdefs var ~equal) in
+    (* print_endline "got rdefs for var"; *)
+    List.exists rdefs ~f:(fun {block=b; _} -> equal block b) in
+  let dead_after = cfg.blocks
+    |> List.filter ~f:(fun (b, _) -> not (mem b loop.blocks) )
+    |> List.filter ~f
+    |> List.map ~f:fst
+    |> List.exists ~f:(fun b -> Option.value_map var ~default:false ~f:(block_uses_var cfg b)) in
+  (* print_endline "got dead after"; *)
+  no_effects && doms_uses && no_redefs && (doms_exits || dead_after)
 
 let move_code (cfg : Bril.cfg) (doms : dominance_map) (loop : loop)
     (li : (string * int list) list) : Bril.cfg =
+  (* print_endline "moving code"; *)
   let is_tagged b (i, instr) =
-    List.Assoc.find_exn li b ~equal |> List.exists ~f:(Int.equal i) in
+    (* print_endline "about to check is tagged"; *)
+    (* let ans =  *)
+      List.Assoc.find_exn li b ~equal |> List.exists ~f:(Int.equal i) in
+    (* print_endline "is tagged fine"; ans in *)
   let f (b, instrs) = 
     let idx_instrs = List.mapi instrs ~f:(fun i instr -> i, instr) in
     let idx_loop_inv, idx_loop_v = List.partition_tf idx_instrs ~f:(is_tagged b) in
@@ -276,15 +369,21 @@ let move_code (cfg : Bril.cfg) (doms : dominance_map) (loop : loop)
     |> List.map ~f
     |> List.map ~f:(fun (b, (is1, is2)) -> (b, is1), (b, is2))
     |> List.unzip in
+  (* print_endline "got loop_inv and loop_v"; *)
   let compare (a, _) (b, _) =
+    (* print_endline "doing compare"; *)
     let adomsb = List.Assoc.find_exn doms b ~equal |> mem a in
     let bdomsa = List.Assoc.find_exn doms a ~equal |> mem b in
+    (* print_endline "compare successful"; *)
     if adomsb then -1
     else if bdomsa then 1
     else 0 in
   let loop_inv = List.sort loop_inv ~compare
     |> List.fold ~init:[] ~f:(fun acc (_, is) -> acc @ is) in
+  (* print_endline "getting pre_header_code"; *)
+  (* fprintf Out_channel.stdout "pre-header block name is %s\n" loop.pre_header; *)
   let pre_header_code = List.Assoc.find_exn cfg.blocks loop.pre_header ~equal in
+  (* print_endline "got pre_header_code"; *)
   let loop_inv = match List.rev pre_header_code with
     | Jmp l :: tl -> (List.rev tl) @ loop_inv @ [Jmp l]
     | Br (arg, l1, l2) :: tl -> (List.rev tl) @ loop_inv @ [Br (arg, l1, l2)]
@@ -301,18 +400,29 @@ let move_func_code (func : Bril.func) : Bril.func =
   let cfg = Bril.to_blocks_and_cfg func.instrs in
   let doms = get_dominance_map cfg in
   let backedges = get_backedges cfg doms in
+  (* print_endline "got backedges"; *)
   let loops = List.map backedges ~f:(get_loop cfg doms) in
+  (* print_endline "got loops"; *)
   let loops = List.filter loops ~f:(is_natural cfg) in
+  (* print_endline "filtered for natural"; *)
   let idx_loops = List.init (List.length loops) ~f:string_of_int in
   let zipped = List.zip_exn idx_loops loops in
+  let zipped = List.fold zipped ~init:[] ~f:merge_sc_loops in
+  let idx_loops = List.map zipped ~f:fst in
   let cfg, loops = List.fold idx_loops ~init:(cfg, zipped) ~f:add_pre_header in
+  (* print_endline "added pre_headers"; *)
   let loops = List.map loops ~f:snd in
+  (* fprintf Out_channel.stdout "Num loops: %d\n" (List.length loops); *)
   let doms = get_dominance_map cfg in
+  (* print_endline "got dominance map"; *)
   let move_loop_code cfg loop =
     let vals, _ = RDAnalysis.worklist func cfg in
+    (* print_endline "got rdefs"; *)
     let lis = tag_lis cfg vals loop in
+    (* print_endline "tagged lis"; *)
     let lis = List.map lis ~f:(fun (b, is) -> b, List.filter is
-      ~f:(fun i -> is_safe cfg doms loop b i)) in
+      ~f:(fun i -> is_safe cfg doms loop vals b i)) in
+    (* print_endline "filtered for safe"; *)
     move_code cfg doms loop lis in
   let cfg = List.fold loops ~init:cfg ~f:move_loop_code in
   { func with instrs = cfg.order

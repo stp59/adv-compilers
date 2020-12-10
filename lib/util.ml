@@ -89,14 +89,12 @@ let is_immediate (doms : dominance_map) (a : string) (b : string) : bool =
 (** [is_frontier cfg doms a b] is [true] iff. [b] is in the dominance frontier
     of [a] in the [cfg]. *)
 let is_frontier (cfg : Bril.cfg) (a : string) (b : string) : bool =
-  (* print_endline ("checking if " ^ b ^ " is in the frontier of " ^ a); *)
   let doms = get_dominance_map cfg in
   let bpreds = get_preds b cfg in
   let bdoms = List.Assoc.find_exn doms b ~equal in
   let adomsb = mem a bdoms && not (equal a b) in
   let adoms_predb =
     List.exists bpreds ~f:(fun n -> List.Assoc.find_exn doms n ~equal |> mem a) in
-  (* let () = if (not adomsb) && adoms_predb then print_endline "it is" else print_endline "it is not" in *)
   (not adomsb) && adoms_predb
 
 (** [get_frontiers cfg] is a map from blocks [b] to lists of blocks which are in
